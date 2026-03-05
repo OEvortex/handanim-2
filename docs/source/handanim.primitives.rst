@@ -44,6 +44,14 @@ handanim.primitives.math module
    :show-inheritance:
    :undoc-members:
 
+handanim.primitives.media module
+--------------------------------
+
+.. automodule:: handanim.primitives.media
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 handanim.primitives.polygons module
 -----------------------------------
 

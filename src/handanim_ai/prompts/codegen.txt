@@ -30,7 +30,8 @@ from handanim.primitives import (
     Line, Arrow, Curve, CurvedArrow,
     Polygon, Rectangle, Square, RoundedRectangle, RoundedSquare,
     Ellipse, Circle, NGon,
-    Text, Math, Eraser, SVG, VectorSVG
+    Text, Math, Eraser, SVG, VectorSVG,
+    Image, Video
 )
 from handanim.stylings.color import (
     BLACK, WHITE, RED, BLUE, GREEN, ORANGE, YELLOW,
@@ -149,6 +150,33 @@ svg_object = VectorSVG.from_svg_file(
     glow_dot_hint={"color": BLUE, "radius": 5},
 )
 svg_object.scale(0.5, 0.5)  # Apply transformation
+```
+
+#### Raster Media (Images and Videos)
+```python
+# Import a raster image (PNG, JPG, etc.)
+photo = Image(
+    path="assets/photo.png",
+    top_left=(100, 150),
+    width=400,            # Optional: specify width (maintains aspect ratio if height omitted)
+    height=None,          # Optional: specify height
+    opacity=1.0,          # Optional: 0.0 to 1.0
+    preserve_aspect_ratio=True
+)
+scene.add(FadeInAnimation(start_time=0, duration=2), drawable=photo)
+
+# Import a video file (MP4, AVI, etc.)
+clip = Video(
+    path="assets/clip.mp4",
+    top_left=(600, 150),
+    width=500,
+    scene_start=2.0,      # When the video starts playing in the scene (seconds)
+    source_start=0.0,     # Start time within the source video file (seconds)
+    playback_rate=1.0,    # Speed multiplier (1.0 is normal)
+    loop=True,            # Whether to loop the video
+    opacity=1.0
+)
+scene.add(FadeInAnimation(start_time=2, duration=2), drawable=clip)
 ```
 
 ### Styling Classes - Complete Reference

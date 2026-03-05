@@ -13,6 +13,7 @@
 - Draw and animate shapes (lines, ellipses, polygons) with a hand-drawn feel
 - Fill objects with sketch-style strokes (hatching, scribbles)
 - Animate handwritten text using custom fonts
+- Import raster images and videos directly into scenes
 - Export vector images (SVG) or videos (MP4).
 - Intuitive Python API for creating scenes and timelines
 

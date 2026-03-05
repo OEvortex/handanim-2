@@ -376,7 +376,14 @@ class Scene:
             ctx.paint()
 
             self.viewport.apply_to_context(ctx)
-            frame_ops.render(ctx)
+            frame_ops.render(
+                ctx,
+                render_context={
+                    "scene_time": frame_index / self.fps,
+                    "frame_index": frame_index,
+                    "fps": self.fps,
+                },
+            )
             surface.finish()
 
     def render(self, output_path: str, max_length: float | None = None) -> None:
@@ -403,7 +410,7 @@ class Scene:
             write_obj = imageio.get_writer(output_path, fps=self.fps, codec="libx264")
 
         with write_obj as writer:
-            for frame_ops in tqdm(opsset_list, desc=tqdm_desc):
+            for frame_index, frame_ops in enumerate(tqdm(opsset_list, desc=tqdm_desc)):
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
                 ctx = cairo.Context(surface)  # create cairo context
 
@@ -413,7 +420,14 @@ class Scene:
                 ctx.paint()
 
                 self.viewport.apply_to_context(ctx)
-                frame_ops.render(ctx)  # applies the operations to cairo context
+                frame_ops.render(
+                    ctx,
+                    render_context={
+                        "scene_time": frame_index / self.fps,
+                        "frame_index": frame_index,
+                        "fps": self.fps,
+                    },
+                )  # applies the operations to cairo context
 
                 frame_np = cairo_surface_to_numpy(surface)
                 writer.append_data(frame_np)

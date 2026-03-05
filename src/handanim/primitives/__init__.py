@@ -3,6 +3,7 @@ from .curves import Curve
 from .ellipse import Circle, Ellipse
 from .eraser import Eraser
 from .lines import Line, LinearPath
+from .media import Image, Video
 from .math import Math
 from .polygons import NGon, Polygon, Rectangle, RoundedRectangle, RoundedSquare, Square
 from .svg import SVG
@@ -17,6 +18,7 @@ __all__ = [
     "CurvedArrow",
     "Ellipse",
     "Eraser",
+    "Image",
     "Line",
     "LinearPath",
     "Math",
@@ -27,5 +29,6 @@ __all__ = [
     "RoundedSquare",
     "Square",
     "Text",
+    "Video",
     "VectorSVG",
 ]
