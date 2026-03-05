@@ -1,0 +1,102 @@
+[project]
+name = "handanim"
+version = "0.1.0"
+description = "Hand-drawn animation library"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Subhrajyoty Roy", email = "subhrajyotyroy@gmail.com" },
+    { name = "Abhay Koul", email = "koulabhay25@gmail.com" }
+]
+dependencies = [
+    "cairocffi>=1.7.1,<2.0.0",
+    "numpy>=2.2.4,<3.0.0",
+    "svgwrite>=1.4.3,<2.0.0",
+    "moviepy>=2.1.2,<3.0.0",
+    "pycairo>=1.27.0,<2.0.0",
+    "fonttools>=4.47.0,<5.0.0",
+    "matplotlib>=3.7.0,<4.0.0",
+    "svgelements>=1.9.6",
+    "svgpathtools>=1.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "ty",
+    "pytest",
+    "pytest-cov",
+    "sphinx>=8.2.3,<9.0.0",
+    "furo>=2024.8.6,<2025.0.0",
+    "vtracer>=0.6.11,<0.7.0",
+    "opencv-python>=4.11.0.86,<5.0.0.0",
+    "scikit-image>=0.25.2,<0.26.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",        # pydocstyle (enable selectively)
+    "COM812",   # trailing comma (conflicts with formatter)
+    "ISC001",   # implicit string concat (conflicts with formatter)
+    "ANN401",   # Dynamically typed Any
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",     # assert allowed in tests
+    "PLR2004",  # magic values allowed in tests
+    "ANN",      # annotations optional in tests
+    "D",        # docstrings optional in tests
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = [
+    "--cov=handanim",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/handanim", "src/handanim_ai"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ty.environment]
+python-version = "3.11"
+
+[tool.ty.rules]
+# Start lenient for legacy codebase, tighten gradually
+possibly-missing-attribute = "ignore"
+unresolved-import = "ignore"
+invalid-argument-type = "ignore"
+not-subscriptable = "ignore"
+unresolved-attribute = "ignore"
