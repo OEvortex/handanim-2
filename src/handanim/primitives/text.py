@@ -74,19 +74,75 @@ class Text(Drawable):
         text: str,
         position: tuple[float, float],
         font_size: int = 12,
+        font_name: str | None = None,
         *args,
         **kwargs,
     ) -> None:
+        scale_factor = kwargs.pop("scale_factor", 1.0)
+        rect_box = kwargs.pop("rect_box", None)
+        rect_padding = float(kwargs.pop("rect_padding", 0.0))
         super().__init__(*args, **kwargs)
         self.text = text
         self.position = position
         self.font_size = font_size
-        self.scale_factor = kwargs.get("scale_factor", 1.0)
+        self.font_name = font_name
+        self.scale_factor = float(scale_factor)
+        self.rect_box: tuple[float, float, float, float] | None = rect_box
+        self.rect_padding = rect_padding
+
+        if self.rect_box is not None:
+            if len(self.rect_box) != 4:
+                msg = "rect_box must be a tuple of (x, y, width, height)"
+                raise ValueError(msg)
+            _x, _y, box_width, box_height = self.rect_box
+            if box_width <= 0 or box_height <= 0:
+                msg = "rect_box width and height must be positive"
+                raise ValueError(msg)
+        if self.rect_padding < 0:
+            msg = "rect_padding must be non-negative"
+            raise ValueError(msg)
+
+    def _get_target_position(self) -> tuple[float, float]:
+        if self.rect_box is None:
+            return self.position
+        box_x, box_y, box_width, box_height = self.rect_box
+        return (box_x + box_width / 2, box_y + box_height / 2)
+
+    def _center_opsset(self, opsset: OpsSet, target_position: tuple[float, float]) -> None:
+        center_x, center_y = opsset.get_center_of_gravity()
+        if not np.isfinite(center_x) or not np.isfinite(center_y):
+            return
+        opsset.translate(target_position[0] - center_x, target_position[1] - center_y)
+
+    def _fit_to_rect_box(self, opsset: OpsSet, target_position: tuple[float, float]) -> None:
+        if self.rect_box is None:
+            return
+
+        _x, _y, box_width, box_height = self.rect_box
+        available_width = max(box_width - 2 * self.rect_padding, 1e-6)
+        available_height = max(box_height - 2 * self.rect_padding, 1e-6)
+
+        min_x, min_y, max_x, max_y = opsset.get_bbox()
+        if not np.isfinite([min_x, min_y, max_x, max_y]).all():
+            return
+
+        text_width = max_x - min_x
+        text_height = max_y - min_y
+        if text_width <= 0 or text_height <= 0:
+            return
+
+        fit_scale = min(available_width / text_width, available_height / text_height)
+        if fit_scale < 1:
+            opsset.scale(fit_scale)
+            self._center_opsset(opsset, target_position)
 
     def get_random_font_choice(self) -> tuple[str, str]:
         """
         Chooses a random font from the available fonts
         """
+        if self.font_name is not None:
+            return (self.font_name, get_font_path(self.font_name))
+
         font_list = list_fonts()
         if self.sketch_style.disable_font_mixture:
             font_choice = font_list[0]
@@ -145,7 +201,8 @@ class Text(Drawable):
                 },
             )
         )
-        offset_x, offset_y = self.position
+        target_position = self._get_target_position()
+        offset_x, offset_y = target_position
         space_width, glyph_scale = self.get_glyph_space()
         for char in self.text:
             if char == " ":
@@ -161,10 +218,6 @@ class Text(Drawable):
                 -self.sketch_style.roughness, self.sketch_style.roughness
             )
 
-        # get the center of gravity for the opsset
-        cg = opsset.get_center_of_gravity()
-        opsset.translate(
-            self.position[0] - cg[0],
-            self.position[1] - cg[1]
-        ) # translate so that cg is at the proper position
+        self._center_opsset(opsset, target_position)
+        self._fit_to_rect_box(opsset, target_position)
         return opsset

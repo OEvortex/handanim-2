@@ -6,6 +6,6 @@
 
 ## Bug fixes to be performed
 
-- [ ] Autofitting content based on rect boxes.
-- [ ] Fix arrows (bug)
+- [X] Autofitting content based on rect boxes.
+- [X] Fix arrows (bug)
 

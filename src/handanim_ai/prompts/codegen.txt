@@ -109,13 +109,23 @@ sun = Circle(
 
 #### Text and Mathematics
 ```python
-FONT_NAME = "feasibly"  # Available: feasibly, headstay, caveat, permanent_marker, handanimtype1
+# Available Fonts:
+# - "feasibly" (Default for Text, single-line handwriting)
+# - "headstay" (Handwriting)
+# - "backstay" (Single-line handwriting)
+# - "caveat" (Handwriting)
+# - "permanent_marker" (Bold marker style)
+# - "notosans_math" (Standard math font)
+# - "handanimtype1" (Default for Math, custom SVG font)
+
+FONT_NAME = "feasibly"
 
 # Plain text
 title = Text(
-    text="Pythagoras` Theorem",
+    text="Pythagoras' Theorem",
     position=(300, 500),  # x, y coordinates
     font_size=192,
+    font_name=FONT_NAME,  # Optional: specify font name
     stroke_style=StrokeStyle(color=BLUE, width=2),
     glow_dot_hint={"color": BLUE, "radius": 5},  # Shows animated pen tip
 )
@@ -211,6 +221,7 @@ SketchStyle(
     roughness=1,           # Overall roughness multiplier (1-10 typical)
     curve_tightness=0,     # Bezier control point tightness
     disable_multi_stroke=False,  # Use multiple strokes for sketch effect
+    disable_font_mixture=True,   # Set to False to randomly mix fonts for each character
 )
 ```
 

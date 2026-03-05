@@ -72,7 +72,7 @@ class Arrow(Drawable):
         opsset.extend(arrow_head.draw())
 
         # check for arrow_head type now
-        if self.arrow_head_type in ["->>", "-|>"]:
+        if self.arrow_head_type == "->>":
             # add another arrowhead
             opsset.add(
                 Ops(
@@ -103,6 +103,18 @@ class Arrow(Drawable):
                 sketch_style=self.sketch_style,
             )
             opsset.extend(arrow_head2.draw())
+        elif self.arrow_head_type == "-|>":
+            bar_x = arrow_length - self.arrow_head_size / 2
+            bar_half_height = np.sin(arrow_head_angle) * self.arrow_head_size
+            arrow_bar = LinearPath(
+                points=[
+                    (bar_x, -bar_half_height),
+                    (bar_x, bar_half_height),
+                ],
+                stroke_style=self.stroke_style,
+                sketch_style=self.sketch_style,
+            )
+            opsset.extend(arrow_bar.draw())
 
         opsset.rotate(np.rad2deg(angle), center_of_rotation=(0, 0))
         opsset.translate(offset_x=self.start[0], offset_y=self.start[1])
@@ -184,18 +196,16 @@ class CurvedArrow(Drawable):
                 opsset.add(Ops(OpsType.MOVE_TO, data=[end_point]))  # move to the end point again
 
         elif self.arrow_head_type == "-|>":
-            for arrow_scale in [-1, 1]:
-                arrow_line = Line(
-                    start=(end_point[0] - self.arrow_head_size / 2, end_point[1]),
-                    end=(
-                        end_point[0] - np.cos(arrow_head_angle) * self.arrow_head_size,
-                        end_point[1] + arrow_scale * np.sin(arrow_head_angle) * self.arrow_head_size,
-                    ),
-                    stroke_style=self.stroke_style,
-                    sketch_style=self.sketch_style,
-                )
-                opsset.extend(arrow_line.draw())
-                opsset.add(Ops(OpsType.MOVE_TO, data=[end_point]))  # move to the end point again
+            bar_x = end_point[0] - self.arrow_head_size / 2
+            bar_half_height = np.sin(arrow_head_angle) * self.arrow_head_size
+            arrow_bar = Line(
+                start=(bar_x, end_point[1] - bar_half_height),
+                end=(bar_x, end_point[1] + bar_half_height),
+                stroke_style=self.stroke_style,
+                sketch_style=self.sketch_style,
+            )
+            opsset.extend(arrow_bar.draw())
+            opsset.add(Ops(OpsType.MOVE_TO, data=[end_point]))  # move to the end point again
 
         # finally, rotate the opset back to the original angle
         opsset.rotate(np.rad2deg(angle), center_of_rotation=end_point)
