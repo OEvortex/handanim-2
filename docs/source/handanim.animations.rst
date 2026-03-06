@@ -12,6 +12,14 @@ handanim.animations.fade module
    :show-inheritance:
    :undoc-members:
 
+handanim.animations.morph module
+--------------------------------
+
+.. automodule:: handanim.animations.morph
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 handanim.animations.sketch module
 ---------------------------------
 

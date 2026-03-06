@@ -238,3 +238,10 @@ class DrawableGroup(Drawable):
         for elem in self.elements:
             final_set.extend(elem.draw())
         return final_set
+
+
+class EmptyDrawable(Drawable):
+    """A drawable that intentionally renders no operations."""
+
+    def draw(self) -> OpsSet:
+        return OpsSet(initial_set=[])

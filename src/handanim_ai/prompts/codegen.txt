@@ -26,7 +26,9 @@ import os
 from handanim.animations import (
     FadeInAnimation,
     FadeOutAnimation,
+    ReplacementTransformAnimation,
     SketchAnimation,
+    TransformAnimation,
     TranslateFromAnimation,
     TranslateToAnimation,
     TranslateToPersistAnimation,
@@ -226,6 +228,8 @@ All animation constructors support `start_time`, `duration`, optional `easing_fu
   - if a drawable has `glow_dot_hint={"color": ..., "radius": ...}`, the sketch animation shows an animated pen tip automatically
 - `FadeInAnimation(start_time=0, duration=1)`
 - `FadeOutAnimation(start_time=3, duration=1)`
+- `TransformAnimation(target_drawable=target, start_time=2, duration=2, path_arc=0.0)`
+- `ReplacementTransformAnimation(target_drawable=target, start_time=4, duration=2, path_arc=0.0)`
 - `ZoomInAnimation(start_time=1, duration=1.5)`
 - `ZoomOutAnimation(start_time=5, duration=1.5)`
 - `TranslateToAnimation(start_time=2, duration=2, data={"point": (x, y)})`
@@ -233,6 +237,11 @@ All animation constructors support `start_time`, `duration`, optional `easing_fu
 - `TranslateToPersistAnimation(start_time=2, duration=2, data={"point": (x, y)})`
 - `CompositeAnimationEvent(events=[...])`
   - use for sequences like draw -> move -> fade or draw -> zoom + translate
+- `TransformAnimation` morphs one drawable into another Manim-style by interpolating aligned shape paths.
+- `ReplacementTransformAnimation` performs the same morph but swaps the target drawable into the scene at the end.
+- `path_arc` makes morphing points travel on a curved arc instead of a straight line.
+- morphing also works on parallel `DrawableGroup` objects, with smart source/target matching by geometry.
+- if group sizes differ, unmatched elements can gracefully collapse away or emerge during the morph.
 
 ## Best practices for generated code
 

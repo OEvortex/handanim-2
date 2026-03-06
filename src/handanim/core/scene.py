@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from .animation import AnimationEvent, AnimationEventType, CompositeAnimationEvent
 from .draw_ops import OpsSet
-from .drawable import Drawable, DrawableCache, DrawableGroup
+from .drawable import Drawable, DrawableCache, DrawableGroup, EmptyDrawable
 from .utils import cairo_surface_to_numpy
 from .viewport import Viewport
 
@@ -118,6 +118,44 @@ class Scene:
             return
 
         if isinstance(drawable, DrawableGroup):
+            target_drawable = getattr(event, "target_drawable", None)
+            if target_drawable is not None:
+                if not isinstance(target_drawable, DrawableGroup):
+                    msg = "TransformAnimation between DrawableGroup and non-group drawables is not supported"
+                    raise NotImplementedError(msg)
+                if drawable.grouping_method != "parallel" or target_drawable.grouping_method != "parallel":
+                    msg = "TransformAnimation currently supports only parallel DrawableGroup morphing"
+                    raise NotImplementedError(msg)
+
+                pair_drawables = getattr(event, "pair_drawables", None)
+                clone_for_target = getattr(event, "clone_for_target", None)
+                if not callable(pair_drawables) or not callable(clone_for_target):
+                    msg = "This event does not support DrawableGroup morphing"
+                    raise NotImplementedError(msg)
+
+                from handanim.animations.fade import FadeInAnimation
+
+                for elem in drawable.elements:
+                    self.drawable_cache.set_drawable_opsset(elem)
+                    self.drawable_cache.drawables[elem.id] = elem
+                for elem in target_drawable.elements:
+                    self.drawable_cache.set_drawable_opsset(elem)
+                    self.drawable_cache.drawables[elem.id] = elem
+
+                element_pairs = pair_drawables(
+                    drawable.elements, target_drawable.elements, self.drawable_cache
+                )
+                for source_elem, target_elem in element_pairs:
+                    actual_source = source_elem
+                    actual_target = target_elem
+                    if actual_source is None:
+                        actual_source = EmptyDrawable()
+                        self.add(FadeInAnimation(start_time=event.start_time, duration=0.0), actual_source)
+                    if actual_target is None:
+                        actual_target = EmptyDrawable()
+                    self.add(clone_for_target(actual_target), actual_source)
+                return
+
             # drawable group are usually a syntactic sugar for applying the event to its elements
             if drawable.grouping_method == "series":
                 # Apply the event sequentially to each element in the group
@@ -142,9 +180,28 @@ class Scene:
             self.drawable_cache.set_drawable_opsset(drawable)
             self.drawable_cache.drawables[drawable.id] = drawable
 
+            target_drawable = getattr(event, "target_drawable", None)
+            if target_drawable is not None:
+                self.drawable_cache.set_drawable_opsset(target_drawable)
+                self.drawable_cache.drawables[target_drawable.id] = target_drawable
+                bind_target_opsset = getattr(event, "bind_target_opsset", None)
+                if callable(bind_target_opsset):
+                    bind_target_opsset(self.drawable_cache.get_drawable_opsset(target_drawable.id))
+
         # Initialize timeline for the new drawable
         if drawable.id not in self.object_timelines:
             self.object_timelines[drawable.id] = []
+
+        target_drawable = getattr(event, "target_drawable", None)
+        if target_drawable is not None and getattr(
+            event, "replace_mobject_with_target_in_scene", False
+        ):
+            if event.end_time not in self.object_timelines[drawable.id]:
+                self.object_timelines[drawable.id].append(event.end_time)
+            if target_drawable.id not in self.object_timelines:
+                self.object_timelines[target_drawable.id] = []
+            if event.end_time not in self.object_timelines[target_drawable.id]:
+                self.object_timelines[target_drawable.id].append(event.end_time)
 
         self.events.append((event, drawable.id))
 

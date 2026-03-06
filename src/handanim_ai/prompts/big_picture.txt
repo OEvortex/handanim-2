@@ -133,6 +133,8 @@ Behavior:
 - `TranslateToAnimation`
 - `TranslateFromAnimation`
 - `TranslateToPersistAnimation`
+- `TransformAnimation`
+- `ReplacementTransformAnimation`
 
 ### Composition
 - `CompositeAnimationEvent`
@@ -143,6 +145,8 @@ Use these when:
 - a scene needs draw-then-move behavior
 - a label and its shape should feel like one unit
 - an explanation needs a more cinematic sequence
+- a shape, symbol, or formula should smoothly morph into another one
+- a parallel `DrawableGroup` should morph into another grouped arrangement
 
 ## Styling vocabulary
 
