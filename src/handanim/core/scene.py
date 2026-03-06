@@ -47,6 +47,9 @@ class Scene:
         self.drawablegroup_frame_cache: dict[str, OpsSet] = (
             {}
         )  # a temporary frame specific cache that resets for each frame
+        self.drawablegroup_transformed_frame_cache: dict[str, OpsSet] = (
+            {}
+        )  # temporary cache for group event.apply() results within a frame
 
         if viewport is not None:
             self.viewport = viewport
@@ -223,6 +226,41 @@ class Scene:
                 event_and_progress.append((event, progress))
         return event_and_progress
 
+    def _is_object_dynamic_at_time(
+        self, object_id: str, scene_time: float, drawable_events_mapping: dict[str, list[AnimationEvent]]
+    ) -> bool:
+        for event in drawable_events_mapping.get(object_id, []):
+            if event.start_time <= scene_time < event.end_time:
+                return True
+        return False
+
+    def _build_static_frame_opsset(
+        self,
+        active_objects: list[str],
+        t: int,
+        drawable_events_mapping: dict[str, list[AnimationEvent]],
+    ) -> tuple[OpsSet, list[str]]:
+        static_frame_opsset = OpsSet(initial_set=[])
+        dynamic_objects: list[str] = []
+        scene_time = t / self.fps
+
+        for object_id in active_objects:
+            if self._is_object_dynamic_at_time(object_id, scene_time, drawable_events_mapping):
+                dynamic_objects.append(object_id)
+                continue
+
+            event_and_progress = self.get_object_event_and_progress(object_id, t, drawable_events_mapping)
+            static_frame_opsset.extend(
+                self.get_animated_opsset_at_time(
+                    drawable_id=object_id,
+                    t=t,
+                    event_and_progress=event_and_progress,
+                    drawable_events_mapping=drawable_events_mapping,
+                )
+            )
+
+        return static_frame_opsset, dynamic_objects
+
     def get_animated_opsset_at_time(
         self,
         drawable_id: str,
@@ -282,8 +320,12 @@ class Scene:
                 # store in cache to be reused
                 self.drawablegroup_frame_cache[cachekey] = group_opsset
 
-            # apply the group transformation
-            group_opsset = event.apply(group_opsset, progress)
+            transformed_cachekey = f"{cachekey}_{progress}"
+            if transformed_cachekey not in self.drawablegroup_transformed_frame_cache:
+                self.drawablegroup_transformed_frame_cache[transformed_cachekey] = event.apply(
+                    group_opsset, progress
+                )
+            group_opsset = self.drawablegroup_transformed_frame_cache[transformed_cachekey]
 
             # now filter for the current drawable's opsset only
             opsset = group_opsset.filter_by_meta_query("drawable_element_id", drawable_id)
@@ -316,8 +358,11 @@ class Scene:
         else:
             key_frames.append(max_length)
         key_frame_indices = np.round(np.array(key_frames) * self.fps).astype(int).tolist()
+        key_frame_index_set = set(key_frame_indices)
         scene_opsset_list: list[OpsSet] = []
         current_active_objects: list[str] = []
+        current_dynamic_objects: list[str] = []
+        current_static_frame_opsset = OpsSet(initial_set=[])
 
         # start calculating with a progress bar
         frame_count = int(np.round(max_length * self.fps))
@@ -325,12 +370,21 @@ class Scene:
             frame_opsset = OpsSet(initial_set=[])  # initialize with blank opsset, will add more
 
             # for each frame, update the current active objects if it is a keyframe
-            if t in key_frame_indices:
+            if t in key_frame_index_set:
                 current_active_objects = self.get_active_objects(t / self.fps)
+                self.drawablegroup_frame_cache = {}
+                self.drawablegroup_transformed_frame_cache = {}
+                current_static_frame_opsset, current_dynamic_objects = self._build_static_frame_opsset(
+                    current_active_objects,
+                    t,
+                    drawable_events_mapping,
+                )
 
             # for each of these active objects, calculate what all events need to apply upto which progress
+            frame_opsset.extend(current_static_frame_opsset)
             self.drawablegroup_frame_cache = {}  # reset this cache for each frame
-            for object_id in current_active_objects:
+            self.drawablegroup_transformed_frame_cache = {}
+            for object_id in current_dynamic_objects:
                 event_and_progress = self.get_object_event_and_progress(object_id, t, drawable_events_mapping)
 
                 # now we have all the events, so get the animated opsset
