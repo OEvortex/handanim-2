@@ -60,6 +60,14 @@ handanim.primitives.media module
    :show-inheritance:
    :undoc-members:
 
+handanim.primitives.table module
+--------------------------------
+
+.. automodule:: handanim.primitives.table
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 handanim.primitives.polygons module
 -----------------------------------
 

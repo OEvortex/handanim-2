@@ -15,6 +15,7 @@ from .media import Image, Video
 from .math import Math
 from .polygons import NGon, Polygon, Rectangle, RoundedRectangle, RoundedSquare, Square
 from .svg import SVG
+from .table import Table
 from .text import Text
 from .vector_svg import VectorSVG
 
@@ -42,6 +43,7 @@ __all__ = [
     "RoundedRectangle",
     "RoundedSquare",
     "Square",
+    "Table",
     "Text",
     "Video",
     "VectorSVG",

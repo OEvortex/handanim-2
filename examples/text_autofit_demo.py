@@ -1,45 +1,58 @@
 import os
-from handanim.core import Scene, StrokeStyle
-from handanim.animations import SketchAnimation
-from handanim.primitives import Rectangle, Text
-from handanim.stylings.color import WHITE, BLACK
 
-def main():
-    # Create a scene
-    scene = Scene(width=1280, height=720, fps=30, background_color=BLACK)
-    
-    # Define a bounding box (x, y, width, height)
-    box_rect = (440, 260, 400, 200)
-    
-    # 1. Draw the actual rectangle for visual reference
-    rect = Rectangle(
-        top_left=(box_rect[0], box_rect[1]),
-        width=box_rect[2],
-        height=box_rect[3],
-        stroke_style=StrokeStyle(color=WHITE, width=2)
+from handanim.animations import FadeInAnimation, SketchAnimation
+from handanim.core import Scene, StrokeStyle
+from handanim.primitives import Rectangle, Text
+from handanim.stylings.color import BLACK, BLUE, GREEN, ORANGE, WHITE
+
+
+def main() -> None:
+    scene = Scene(width=1280, height=720, fps=24, background_color=BLACK)
+
+    title = Text(
+        text="Text Autofit + Alignment",
+        position=(640, 85),
+        font_size=54,
+        stroke_style=StrokeStyle(color=BLUE, width=2.5),
     )
-    
-    # 2. Create text that is naturally too large for the box
-    # We use rect_box and rect_padding to make it autofit and center
-    autofit_text = Text(
-        text="This text is automatically scaled down and centered to fit perfectly inside the box!",
-        position=(0, 0), # Position is ignored when rect_box is provided
-        font_size=72,    # Large base size that will be scaled down
-        rect_box=box_rect,
-        rect_padding=20,
-        stroke_style=StrokeStyle(color=WHITE)
-    )
-    
-    # Add animations to the scene
-    scene.add(SketchAnimation(start_time=0, duration=2), drawable=rect)
-    scene.add(SketchAnimation(start_time=1, duration=3), drawable=autofit_text)
-    
-    # Render the result
+
+    boxes = [
+        ((70, 180, 320, 180), "left", GREEN),
+        ((480, 180, 320, 180), "center", WHITE),
+        ((890, 180, 320, 180), "right", ORANGE),
+    ]
+    text_value = "Multiline text\nfits the box\nand stays aligned"
+
+    scene.add(FadeInAnimation(start_time=0, duration=0.5), drawable=title)
+    for index, (box_rect, align, color) in enumerate(boxes):
+        rect = Rectangle(
+            top_left=(box_rect[0], box_rect[1]),
+            width=box_rect[2],
+            height=box_rect[3],
+            stroke_style=StrokeStyle(color=color, width=2),
+        )
+        layout_text = Text(
+            text=text_value,
+            position=(0, 0),
+            font_size=64,
+            rect_box=box_rect,
+            rect_padding=16,
+            align=align,
+            line_spacing=1.2,
+            stroke_style=StrokeStyle(color=color, width=1.8),
+        )
+
+        start_time = 0.6 + index * 1.2
+        scene.add(SketchAnimation(start_time=start_time, duration=0.8), drawable=rect)
+        scene.add(SketchAnimation(start_time=start_time + 0.3, duration=1.6), drawable=layout_text)
+
     output_path = os.path.join("examples", "output", "text_autofit_demo.mp4")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+
     print(f"Rendering example to {output_path}...")
-    scene.render(output_path)
+    scene.render(output_path, max_length=6)
+
 
 if __name__ == "__main__":
     main()
+

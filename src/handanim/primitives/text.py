@@ -81,6 +81,8 @@ class Text(Drawable):
         scale_factor = kwargs.pop("scale_factor", 1.0)
         rect_box = kwargs.pop("rect_box", None)
         rect_padding = float(kwargs.pop("rect_padding", 0.0))
+        align = kwargs.pop("align", "center")
+        line_spacing = float(kwargs.pop("line_spacing", 1.25))
         super().__init__(*args, **kwargs)
         self.text = text
         self.position = position
@@ -89,6 +91,8 @@ class Text(Drawable):
         self.scale_factor = float(scale_factor)
         self.rect_box: tuple[float, float, float, float] | None = rect_box
         self.rect_padding = rect_padding
+        self.align = align
+        self.line_spacing = line_spacing
 
         if self.rect_box is not None:
             if len(self.rect_box) != 4:
@@ -101,20 +105,41 @@ class Text(Drawable):
         if self.rect_padding < 0:
             msg = "rect_padding must be non-negative"
             raise ValueError(msg)
+        if self.align not in {"left", "center", "right"}:
+            msg = "align must be one of: left, center, right"
+            raise ValueError(msg)
+        if self.line_spacing <= 0:
+            msg = "line_spacing must be positive"
+            raise ValueError(msg)
 
-    def _get_target_position(self) -> tuple[float, float]:
+    def _get_target_anchor(self) -> tuple[float, float]:
         if self.rect_box is None:
             return self.position
         box_x, box_y, box_width, box_height = self.rect_box
-        return (box_x + box_width / 2, box_y + box_height / 2)
+        if self.align == "left":
+            anchor_x = box_x + self.rect_padding
+        elif self.align == "right":
+            anchor_x = box_x + box_width - self.rect_padding
+        else:
+            anchor_x = box_x + box_width / 2
+        return (anchor_x, box_y + box_height / 2)
 
-    def _center_opsset(self, opsset: OpsSet, target_position: tuple[float, float]) -> None:
-        center_x, center_y = opsset.get_center_of_gravity()
-        if not np.isfinite(center_x) or not np.isfinite(center_y):
+    def _position_opsset(self, opsset: OpsSet, anchor_position: tuple[float, float]) -> None:
+        min_x, min_y, max_x, max_y = opsset.get_bbox()
+        if not np.isfinite([min_x, min_y, max_x, max_y]).all():
             return
-        opsset.translate(target_position[0] - center_x, target_position[1] - center_y)
 
-    def _fit_to_rect_box(self, opsset: OpsSet, target_position: tuple[float, float]) -> None:
+        center_y = (min_y + max_y) / 2
+        if self.align == "left":
+            anchor_x = min_x
+        elif self.align == "right":
+            anchor_x = max_x
+        else:
+            anchor_x = (min_x + max_x) / 2
+
+        opsset.translate(anchor_position[0] - anchor_x, anchor_position[1] - center_y)
+
+    def _fit_to_rect_box(self, opsset: OpsSet, anchor_position: tuple[float, float]) -> None:
         if self.rect_box is None:
             return
 
@@ -134,7 +159,54 @@ class Text(Drawable):
         fit_scale = min(available_width / text_width, available_height / text_height)
         if fit_scale < 1:
             opsset.scale(fit_scale)
-            self._center_opsset(opsset, target_position)
+            self._position_opsset(opsset, anchor_position)
+
+    def _get_lines(self) -> list[str]:
+        return self.text.split("\n") if self.text else [""]
+
+    def _get_line_step(self) -> float:
+        return self.font_size * self.scale_factor * self.line_spacing
+
+    def _render_line(self, line_text: str, offset_y: float) -> OpsSet:
+        line_opsset = OpsSet(initial_set=[])
+        offset_x = 0.0
+        cursor_y = offset_y
+        space_width, glyph_scale = self.get_glyph_space()
+
+        for char in line_text:
+            if char == " ":
+                offset_x += space_width
+                continue
+            glyph_opsset, glyph_width = self.get_glyph_strokes(char)
+            glyph_opsset.translate(offset_x, cursor_y)
+            line_opsset.extend(glyph_opsset)
+
+            offset_x += glyph_width + glyph_scale * 5
+            cursor_y += np.random.uniform(
+                -self.sketch_style.roughness, self.sketch_style.roughness
+            )
+        return line_opsset
+
+    def _align_lines(self, line_opssets: list[OpsSet]) -> None:
+        non_empty_bboxes = [opsset.get_bbox() for opsset in line_opssets if len(opsset.opsset) > 0]
+        if not non_empty_bboxes:
+            return
+
+        block_left = min(bbox[0] for bbox in non_empty_bboxes)
+        block_right = max(bbox[2] for bbox in non_empty_bboxes)
+        block_center = (block_left + block_right) / 2
+
+        for line_opsset in line_opssets:
+            if len(line_opsset.opsset) == 0:
+                continue
+            min_x, _min_y, max_x, _max_y = line_opsset.get_bbox()
+            if self.align == "left":
+                line_opsset.translate(block_left - min_x, 0)
+            elif self.align == "right":
+                line_opsset.translate(block_right - max_x, 0)
+            else:
+                line_center = (min_x + max_x) / 2
+                line_opsset.translate(block_center - line_center, 0)
 
     def get_random_font_choice(self) -> tuple[str, str]:
         """
@@ -201,23 +273,15 @@ class Text(Drawable):
                 },
             )
         )
-        target_position = self._get_target_position()
-        offset_x, offset_y = target_position
-        space_width, glyph_scale = self.get_glyph_space()
-        for char in self.text:
-            if char == " ":
-                offset_x += space_width
-                continue
-            glyph_opsset, glyph_width = self.get_glyph_strokes(char)
-            glyph_opsset.translate(offset_x, offset_y)
-            opsset.extend(glyph_opsset)
+        line_opssets = [
+            self._render_line(line_text, index * self._get_line_step())
+            for index, line_text in enumerate(self._get_lines())
+        ]
+        self._align_lines(line_opssets)
+        for line_opsset in line_opssets:
+            opsset.extend(line_opsset)
 
-            # add small padding
-            offset_x += glyph_width + glyph_scale * 5
-            offset_y += np.random.uniform(
-                -self.sketch_style.roughness, self.sketch_style.roughness
-            )
-
-        self._center_opsset(opsset, target_position)
-        self._fit_to_rect_box(opsset, target_position)
+        target_anchor = self._get_target_anchor()
+        self._position_opsset(opsset, target_anchor)
+        self._fit_to_rect_box(opsset, target_anchor)
         return opsset

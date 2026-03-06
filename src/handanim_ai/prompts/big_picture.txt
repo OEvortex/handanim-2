@@ -58,6 +58,7 @@ Use these for:
 - `FlowchartInputOutput`
 - `FlowchartConnector`
 - base helper `FlowchartNode`
+- `Table`
 
 Useful node behaviors:
 - `node.center`
@@ -71,6 +72,7 @@ Use flowchart primitives for:
 - workflows
 - educational process diagrams
 - feedback loops and loopbacks
+- comparison tables and structured information layouts
 
 ### Text, labels, and formulas
 - `Text`
@@ -228,7 +230,7 @@ Typical usage:
 ### Topic-specific planning suggestions
 - For math: use `Math`, supporting `Text`, arrows, boxes, and step-by-step transformations.
 - For science: use labeled diagrams, color-coded parts, and motion to show process.
-- For CS / algorithms: use flowcharts, boxes, arrows, input/output nodes, and staged highlighting.
+- For CS / algorithms: use flowcharts, tables, boxes, arrows, input/output nodes, and staged highlighting.
 - For conceptual topics: use icons, grouped labels, comparisons, and progressive reveal.
 
 ## What to include in each scene

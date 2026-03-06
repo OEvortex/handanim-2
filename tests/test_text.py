@@ -78,16 +78,91 @@ def test_text_autofit_reduces_oversized_text_bbox() -> None:
     assert fitted_height <= rect_box[3] - 2 * padding + 1e-6
 
 
+def test_multiline_text_autofit_stays_inside_rect_box() -> None:
+    rect_box = (100.0, 150.0, 220.0, 120.0)
+    padding = 8.0
+    stroke_style, sketch_style = _styles()
+
+    opsset = Text(
+        text="Line one\nLine two",
+        position=(0, 0),
+        font_size=72,
+        rect_box=rect_box,
+        rect_padding=padding,
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    ).draw()
+
+    min_x, min_y, max_x, max_y = opsset.get_bbox()
+    box_x, box_y, box_width, box_height = rect_box
+
+    assert min_x >= box_x + padding - 1e-6
+    assert max_x <= box_x + box_width - padding + 1e-6
+    assert min_y >= box_y + padding - 1e-6
+    assert max_y <= box_y + box_height - padding + 1e-6
+
+
+def test_text_alignment_respects_rect_box_anchor() -> None:
+    rect_box = (50.0, 75.0, 320.0, 100.0)
+    padding = 10.0
+    stroke_style, sketch_style = _styles()
+
+    left_ops = Text(
+        text="Aligned",
+        position=(0, 0),
+        font_size=64,
+        rect_box=rect_box,
+        rect_padding=padding,
+        align="left",
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    ).draw()
+    center_ops = Text(
+        text="Aligned",
+        position=(0, 0),
+        font_size=64,
+        rect_box=rect_box,
+        rect_padding=padding,
+        align="center",
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    ).draw()
+    right_ops = Text(
+        text="Aligned",
+        position=(0, 0),
+        font_size=64,
+        rect_box=rect_box,
+        rect_padding=padding,
+        align="right",
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    ).draw()
+
+    left_min_x, _, _left_max_x, _ = left_ops.get_bbox()
+    center_x, _ = center_ops.get_center_of_gravity()
+    _right_min_x, _, right_max_x, _ = right_ops.get_bbox()
+
+    assert left_min_x == pytest.approx(rect_box[0] + padding, abs=2.0)
+    assert center_x == pytest.approx(rect_box[0] + rect_box[2] / 2, abs=2.0)
+    assert right_max_x == pytest.approx(rect_box[0] + rect_box[2] - padding, abs=2.0)
+    assert left_min_x < center_x < right_max_x
+
+
 @pytest.mark.parametrize(
-    ("rect_box", "rect_padding"),
+    ("rect_box", "rect_padding", "align", "line_spacing"),
     [
-        ((0.0, 0.0, -1.0, 10.0), 0.0),
-        ((0.0, 0.0, 10.0, 0.0), 0.0),
-        ((0.0, 0.0, 10.0, 10.0), -1.0),
+        ((0.0, 0.0, -1.0, 10.0), 0.0, "center", 1.25),
+        ((0.0, 0.0, 10.0, 0.0), 0.0, "center", 1.25),
+        ((0.0, 0.0, 10.0, 10.0), -1.0, "center", 1.25),
+        ((0.0, 0.0, 10.0, 10.0), 0.0, "justify", 1.25),
+        ((0.0, 0.0, 10.0, 10.0), 0.0, "center", 0.0),
     ],
 )
 def test_text_invalid_rect_box_inputs_raise_value_error(
-    rect_box: tuple[float, float, float, float], rect_padding: float
+    rect_box: tuple[float, float, float, float],
+    rect_padding: float,
+    align: str,
+    line_spacing: float,
 ) -> None:
     with pytest.raises(ValueError):
         Text(
@@ -95,6 +170,8 @@ def test_text_invalid_rect_box_inputs_raise_value_error(
             position=(0, 0),
             rect_box=rect_box,
             rect_padding=rect_padding,
+            align=align,
+            line_spacing=line_spacing,
         )
 
 

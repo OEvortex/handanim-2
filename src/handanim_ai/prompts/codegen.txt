@@ -58,6 +58,7 @@ from handanim.primitives import (
     RoundedSquare,
     Square,
     SVG,
+    Table,
     Text,
     VectorSVG,
     Video,
@@ -154,6 +155,7 @@ if __name__ == "__main__":
 ### Flowcharts and diagrams
 
 - Exported: `FlowchartNode`, `FlowchartProcess`, `FlowchartDecision`, `FlowchartTerminator`, `FlowchartInputOutput`, `FlowchartConnector`
+- Also available: `Table`
 - Usually instantiate the specific node classes, not `FlowchartNode` directly.
 - Node signature pattern:
   - `FlowchartProcess(text, top_left, width, height, font_size=30, font_name=None, text_padding=18.0, text_stroke_style=None, stroke_style=..., fill_style=..., sketch_style=...)`
@@ -169,17 +171,23 @@ if __name__ == "__main__":
   - `elbow` supports `"horizontal"` or `"vertical"`
 - Direct connector:
   - `FlowchartConnector(start=(x1, y1), end=(x2, y2), waypoints=[...], arrow_head_type="->", arrow_head_size=10.0, arrow_head_angle=45.0, ...)`
+- Table helper:
+  - `Table(data=[[...], [...]], top_left=(x, y), col_widths=[...], row_heights=[...], font_size=28, cell_padding=12.0, header_rows=1, header_columns=0, header_fill_style=..., stroke_style=..., fill_style=..., sketch_style=...)`
+  - Use `fill_style` for normal cells and `header_fill_style` for header rows/columns.
+  - Geometry helpers: `table.cell_bbox(row, col)`, `table.cell_center(row, col)`, `table.center`
 
 ### Text and math
 
-- `Text(text="Hello", position=(x, y), font_size=48, font_name=None, scale_factor=1.0, rect_box=None, rect_padding=0.0, stroke_style=..., sketch_style=..., glow_dot_hint=...)`
+- `Text(text="Hello", position=(x, y), font_size=48, font_name=None, scale_factor=1.0, rect_box=None, rect_padding=0.0, align="center", line_spacing=1.25, stroke_style=..., sketch_style=..., glow_dot_hint=...)`
 - `Math(tex_expression=r"$a^2+b^2=c^2$", position=(x, y), font_size=96, font_name="handanimtype1", stroke_style=..., sketch_style=..., glow_dot_hint=...)`
 - Use raw strings for LaTeX math: `r"$...$"`
 - Important fonts:
   - `"feasibly"` = best default for handwritten text
   - `"handanimtype1"` = default math font
   - also available: `"headstay"`, `"backstay"`, `"caveat"`, `"permanent_marker"`, `"notosans_math"`
-- `rect_box=(x, y, w, h)` and `rect_padding` are useful for centering text inside boxes/nodes.
+- `text` may contain `\n` for multiline layout.
+- `align` supports `"left"`, `"center"`, `"right"`.
+- `rect_box=(x, y, w, h)` and `rect_padding` are useful for fitting text inside boxes/nodes; `align` controls horizontal placement inside that box.
 
 ### SVG and vector art
 
