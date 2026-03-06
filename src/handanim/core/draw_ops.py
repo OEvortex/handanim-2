@@ -368,7 +368,7 @@ def _shade_color(
     diffuse = max(float(np.dot(normal_unit, light_direction)), 0.0)
     brightness = (1.0 - shading_factor) + shading_factor * diffuse
     shaded = np.clip(np.array(base_color, dtype=float) * brightness, 0.0, 1.0)
-    return tuple(float(value) for value in shaded)
+    return (float(shaded[0]), float(shaded[1]), float(shaded[2]))
 
 
 def _interpolate_to_z_plane(point_a: np.ndarray, point_b: np.ndarray, max_z: float) -> np.ndarray:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import numpy as np
 
@@ -16,10 +17,13 @@ from .camera_3d import ThreeDCamera
 from .drawable import Drawable
 
 
+FixedOrientationCenterFunc = Callable[..., tuple[float, float, float] | np.ndarray]
+
+
 @dataclass
 class FixedOrientationConfig:
     point: tuple[float, float, float] | None = None
-    center_func: object | None = None
+    center_func: FixedOrientationCenterFunc | None = None
     use_static_center_func: bool = False
     static_point: tuple[float, float, float] | None = None
 
@@ -70,7 +74,7 @@ class ThreeDScene(Scene):
         *drawables: Drawable,
         point: tuple[float, float, float] | None = None,
         points: list[tuple[float, float, float]] | None = None,
-        center_func=None,
+        center_func: FixedOrientationCenterFunc | None = None,
         use_static_center_func: bool = False,
     ) -> None:
         if points is not None and len(points) != len(drawables):
@@ -218,18 +222,28 @@ class ThreeDScene(Scene):
         config: FixedOrientationConfig,
     ) -> tuple[float, float, float]:
         if config.static_point is not None:
-            return config.static_point
+            return (
+                float(config.static_point[0]),
+                float(config.static_point[1]),
+                float(config.static_point[2]),
+            )
         if config.point is not None:
-            return tuple(float(value) for value in config.point)
-        if config.center_func is not None:
+            return (
+                float(config.point[0]),
+                float(config.point[1]),
+                float(config.point[2]),
+            )
+        center_func = config.center_func
+        if center_func is not None:
             try:
-                value = config.center_func(drawable, scene_time)
+                value = center_func(drawable, scene_time)
             except TypeError:
                 try:
-                    value = config.center_func(drawable)
+                    value = center_func(drawable)
                 except TypeError:
-                    value = config.center_func()
-            return tuple(float(component) for component in value)
+                    value = center_func()
+            point_array = np.asarray(value, dtype=float)
+            return (float(point_array[0]), float(point_array[1]), float(point_array[2]))
         msg = "Fixed orientation mobjects require point, points, or center_func"
         raise ValueError(msg)
 

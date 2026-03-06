@@ -43,10 +43,10 @@ class PolyLine3D(Drawable):
 
 
 class Line3D(PolyLine3D):
-    def __init__(self, start, end, *args, **kwargs):
+    def __init__(self, start, end, **kwargs):
         self.start = _as_3d(start)
         self.end = _as_3d(end)
-        super().__init__([self.start, self.end], closed=False, *args, **kwargs)
+        super().__init__([self.start, self.end], closed=False, **kwargs)
 
 
 class Mesh3D(Drawable):
@@ -158,7 +158,7 @@ Surface = ParametricSurface
 
 
 class Sphere(ParametricSurface):
-    def __init__(self, radius: float = 1.0, center=(0.0, 0.0, 0.0), *args, **kwargs):
+    def __init__(self, radius: float = 1.0, center=(0.0, 0.0, 0.0), **kwargs):
         center_vec = _as_3d(center)
         kwargs.setdefault("backface_cull", True)
 
@@ -172,11 +172,11 @@ class Sphere(ParametricSurface):
                 dtype=float,
             )
 
-        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(0.0, math.pi), *args, **kwargs)
+        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(0.0, math.pi), **kwargs)
 
 
 class Cylinder(ParametricSurface):
-    def __init__(self, radius: float = 1.0, height: float = 2.0, center=(0.0, 0.0, 0.0), *args, **kwargs):
+    def __init__(self, radius: float = 1.0, height: float = 2.0, center=(0.0, 0.0, 0.0), **kwargs):
         center_vec = _as_3d(center)
         kwargs.setdefault("backface_cull", True)
 
@@ -186,11 +186,11 @@ class Cylinder(ParametricSurface):
                 dtype=float,
             )
 
-        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(-height / 2, height / 2), *args, **kwargs)
+        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(-height / 2, height / 2), **kwargs)
 
 
 class Cone(ParametricSurface):
-    def __init__(self, base_radius: float = 1.0, height: float = 2.0, center=(0.0, 0.0, 0.0), *args, **kwargs):
+    def __init__(self, base_radius: float = 1.0, height: float = 2.0, center=(0.0, 0.0, 0.0), **kwargs):
         center_vec = _as_3d(center)
         kwargs.setdefault("backface_cull", True)
 
@@ -201,7 +201,7 @@ class Cone(ParametricSurface):
                 dtype=float,
             )
 
-        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(0.0, height), *args, **kwargs)
+        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(0.0, height), **kwargs)
 
 
 class Torus(ParametricSurface):
@@ -210,7 +210,6 @@ class Torus(ParametricSurface):
         major_radius: float = 2.0,
         minor_radius: float = 0.5,
         center=(0.0, 0.0, 0.0),
-        *args,
         **kwargs,
     ):
         center_vec = _as_3d(center)
@@ -223,11 +222,11 @@ class Torus(ParametricSurface):
                 dtype=float,
             )
 
-        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(0.0, 2 * math.pi), *args, **kwargs)
+        super().__init__(surface_func, u_range=(0.0, 2 * math.pi), v_range=(0.0, 2 * math.pi), **kwargs)
 
 
 class Cube(Mesh3D):
-    def __init__(self, side_length: float = 2.0, center=(0.0, 0.0, 0.0), *args, **kwargs):
+    def __init__(self, side_length: float = 2.0, center=(0.0, 0.0, 0.0), **kwargs):
         cx, cy, cz = _as_3d(center)
         half = side_length / 2
         vertices = [
@@ -248,11 +247,11 @@ class Cube(Mesh3D):
             [2, 3, 7, 6],
             [3, 0, 4, 7],
         ]
-        super().__init__(vertices=vertices, faces=faces, *args, **kwargs)
+        super().__init__(vertices=vertices, faces=faces, **kwargs)
 
 
 class Prism(Cube):
-    def __init__(self, dimensions=(2.0, 2.0, 2.0), center=(0.0, 0.0, 0.0), *args, **kwargs):
+    def __init__(self, dimensions=(2.0, 2.0, 2.0), center=(0.0, 0.0, 0.0), **kwargs):
         cx, cy, cz = _as_3d(center)
         dx, dy, dz = [float(value) / 2 for value in dimensions]
         vertices = [
@@ -273,12 +272,12 @@ class Prism(Cube):
             [2, 3, 7, 6],
             [3, 0, 4, 7],
         ]
-        Mesh3D.__init__(self, vertices=vertices, faces=faces, *args, **kwargs)
+        Mesh3D.__init__(self, vertices=vertices, faces=faces, **kwargs)
 
 
 class Dot3D(Sphere):
-    def __init__(self, point=(0.0, 0.0, 0.0), radius: float = 0.08, *args, **kwargs):
-        super().__init__(radius=radius, center=point, resolution=(12, 12), *args, **kwargs)
+    def __init__(self, point=(0.0, 0.0, 0.0), radius: float = 0.08, **kwargs):
+        super().__init__(radius=radius, center=point, resolution=(12, 12), **kwargs)
 
 
 class ThreeDAxes(DrawableGroup):
