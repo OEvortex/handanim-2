@@ -1,6 +1,9 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from handanim.stylings import fonts
 from handanim.core.styles import SketchStyle, StrokeStyle
 from handanim.primitives import Text
 
@@ -93,3 +96,15 @@ def test_text_invalid_rect_box_inputs_raise_value_error(
             rect_box=rect_box,
             rect_padding=rect_padding,
         )
+
+
+def test_bundled_fonts_resolve_inside_package() -> None:
+    package_font_root = Path(fonts.__file__).resolve().parents[1] / "fonts"
+
+    assert package_font_root.is_dir()
+
+    for font_name in fonts.list_fonts():
+        font_path = Path(fonts.get_font_path(font_name)).resolve()
+
+        assert font_path.is_relative_to(package_font_root)
+        assert font_path.is_file()
