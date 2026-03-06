@@ -91,7 +91,7 @@ exclude_lines = [
 error-on-warning = true
 
 [tool.ty.environment]
-python-version = "3.11"
+python-version = "3.14"
 
 [tool.ty.rules]
 # Start lenient for legacy codebase, tighten gradually
