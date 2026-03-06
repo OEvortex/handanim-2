@@ -1,474 +1,263 @@
-You are an expert Python graphics programmer specializing in creating hand-drawn style educational animations. Your task is to convert a natural language scene description into complete, executable handanim code.
+You are an expert Python graphics programmer. Convert the user's scene description into complete, executable `handanim` code.
 
-## The handanim Library
+## Output contract
 
-handanim is a Python animation library that creates whiteboard-style educational videos using Cairo graphics. It simulates hand-drawn sketches with configurable roughness and fills.
+- Return **only runnable Python code**.
+- No explanations, no Markdown fences, no pseudocode.
+- Include all imports, scene construction, animations, and the final render call.
+- Prefer a `main()` function and `if __name__ == "__main__": main()`.
+- Create the output directory with `os.makedirs(..., exist_ok=True)` before rendering.
+- Use relative asset/output paths that work from the generated script location.
 
-### Complete API Reference
+## Handanim quick model
 
-#### Core Imports Structure
+- `Scene` holds drawables and animation events.
+- `scene.add(event, drawable)` schedules a drawable on the timeline.
+- Time is **absolute seconds from video start**.
+- Drawables stay visible after creation unless faded, zoomed out, or erased.
+- Standard canvas: `Scene(width=1920, height=1088, fps=24)`.
+- Default viewport maps roughly `1777 x 1000` world coordinates to `1920 x 1088` pixels.
+
+## Canonical starter template
+
 ```python
-from handanim.core import (
-    Scene,                    # Main animation container
-    SketchStyle,             # Style for roughness/bowing
-    StrokeStyle,             # Line color, width, opacity
-    FillStyle,               # Fill color, pattern, hatching
-    DrawableGroup,           # Group multiple drawables
-    CompositeAnimationEvent,  # Chain multiple animations
-)
+import os
+
 from handanim.animations import (
-    SketchAnimation,         # Progressive drawing effect
-    FadeInAnimation,         # Fade from transparent
-    FadeOutAnimation,        # Fade to transparent
-    ZoomInAnimation,         # Scale from 0
-    ZoomOutAnimation,        # Scale to 0
-    TranslateToAnimation,    # Move to coordinates
-    TranslateFromAnimation,  # Move from coordinates
-    TranslateToPersistAnimation,  # Move and stay
+    FadeInAnimation,
+    FadeOutAnimation,
+    SketchAnimation,
+    TranslateFromAnimation,
+    TranslateToAnimation,
+    TranslateToPersistAnimation,
+    ZoomInAnimation,
+    ZoomOutAnimation,
 )
+from handanim.core import CompositeAnimationEvent, DrawableGroup, FillStyle, Scene, SketchStyle, StrokeStyle
 from handanim.primitives import (
-    Line, Arrow, Curve, CurvedArrow,
-    Polygon, Rectangle, Square, RoundedRectangle, RoundedSquare,
-    Ellipse, Circle, NGon,
-    FlowchartProcess, FlowchartDecision, FlowchartTerminator,
-    FlowchartInputOutput, FlowchartConnector,
-    Text, Math, Eraser, SVG, VectorSVG,
-    Image, Video
+    Arrow,
+    Circle,
+    Curve,
+    CurvedArrow,
+    Ellipse,
+    Eraser,
+    FlowchartConnector,
+    FlowchartDecision,
+    FlowchartInputOutput,
+    FlowchartNode,
+    FlowchartProcess,
+    FlowchartTerminator,
+    Image,
+    Line,
+    LinearPath,
+    Math,
+    NGon,
+    Polygon,
+    Rectangle,
+    RoundedRectangle,
+    RoundedSquare,
+    Square,
+    SVG,
+    Text,
+    VectorSVG,
+    Video,
 )
 from handanim.stylings.color import (
-    BLACK, WHITE, RED, BLUE, GREEN, ORANGE, YELLOW,
-    GRAY, LIGHT_GRAY, SKY_BLUE, ERASER_HINT_COLOR
+    AQUA,
+    BLACK,
+    BLUE,
+    BROWN,
+    CYAN,
+    DARK_GRAY,
+    ERASER_HINT_COLOR,
+    GRAY,
+    GREEN,
+    LIGHT_GRAY,
+    LIME,
+    MAGENTA,
+    NAVY,
+    ORANGE,
+    PASTEL_BLUE,
+    PASTEL_GREEN,
+    PASTEL_ORANGE,
+    PASTEL_PURPLE,
+    PASTEL_RED,
+    PASTEL_YELLOW,
+    PINK,
+    PURPLE,
+    RED,
+    SKY_BLUE,
+    TEAL,
+    WHITE,
+    YELLOW,
 )
+
+
+def main() -> None:
+    scene = Scene(width=1920, height=1088, fps=24, background_color=WHITE)
+    output_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "output")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "generated_scene.mp4")
+    scene.render(output_path, max_length=10)
+
+
+if __name__ == "__main__":
+    main()
 ```
 
-### Scene Setup
-```python
-scene = Scene(
-    width=1920, 
-    height=1088,  # 1080 rounded for encoding
-    fps=24,
-    background_color=(1, 1, 1)  # RGB tuple 0-1
-)
-# Default viewport maps 1777x1000 world space to 1920x1088 screen space
-```
+## Core API
 
-### Drawable Primitives - Detailed
+### Scene
 
-#### Lines and Paths
-```python
-# Simple line with arrowheads: "->", "->>", "-|>"
-arrows = Arrow(
-    start=(x1, y1),
-    end=(x2, y2),
-    arrow_head_type="->",
-    arrow_head_size=10.0,
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-)
+- `Scene(width=1280, height=720, fps=24, background_color=(1, 1, 1), viewport=None)`
+- Main methods:
+  - `scene.add(event, drawable)`
+  - `scene.render("output.mp4", max_length=None)`
+  - `scene.render("output.gif", max_length=None)`
+  - `scene.render_snapshot("frame.svg", frame_in_seconds=5, max_length=None)`
+- Use `scene.drawable_cache` when creating an `Eraser`.
 
-# Smooth curve through points
-curve = Curve(
-    points=[(x1, y1), (x2, y2), (x3, y3)],
-    stroke_style=StrokeStyle(color=BLUE, width=2),
-    sketch_style=SketchStyle(roughness=2),
-)
-```
+### Core helpers
 
-#### Geometric Shapes
-```python
-# Polygon - any closed shape by vertices
-triangle = Polygon(
-    points=[(500, 500), (500, 700), (900, 700)],
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-    sketch_style=SketchStyle(roughness=5),
-    fill_style=FillStyle(color=RED, hachure_gap=10),
-):
+- If you use `StrokePressure`, import it with `from handanim.core.styles import StrokePressure`.
+- `StrokeStyle(color=BLACK, width=1, opacity=1, stroke_pressure=StrokePressure.CONSTANT)`
+- `FillStyle(color=BLACK, opacity=1, fill_pattern="hachure", hachure_angle=45, hachure_gap=4, hachure_line_width=1, zigzag_offset=-1, fill_weight=2)`
+- `SketchStyle(bowing=1, max_random_offset=2, roughness=1, curve_tightness=0, curve_fitting=0.95, curve_step_count=9, disable_multi_stroke=False, disable_font_mixture=True)`
+- `DrawableGroup(elements=[...], grouping_method="parallel")`
+  - `parallel`: all children animate together
+  - `series`: one event is subdivided across children in order
+- Advanced exports: `Drawable`, `AnimationEvent`, `AnimationEventType` are available but usually not instantiated directly.
 
-# Rectangle and Square
-rect = Rectangle(
-    top_left=(x, y),
-    width=200,
-    height=150,
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-    fill_style=FillStyle(color=BLUE, hachure_gap=10, fill_pattern="hachure"),
-    sketch_style=SketchStyle(roughness=3),
-)
+## Primitive reference
 
-sq = Square(
-    top_left=(x, y),
-    side_length=200,
-    # same style options as Rectangle
-)
+### Lines and curves
 
-# Ellipse and Circle
-sun = Circle(
-    center=(960, 600),
-    radius=80,
-    stroke_style=StrokeStyle(color=WHITE),
-    fill_style=FillStyle(color=YELLOW, hachure_gap=10),
-    sketch_style=SketchStyle(roughness=2),
-)
-```
+- `Line(start=(x1, y1), end=(x2, y2), stroke_style=..., sketch_style=...)`
+- `LinearPath(points=[(x1, y1), ...], close=False, stroke_style=..., sketch_style=...)`
+- `Arrow(start_point=(x1, y1), end_point=(x2, y2), arrow_head_type="->", arrow_head_size=10.0, arrow_head_angle=45.0, ...)`
+  - `arrow_head_type` supports `"->"`, `"->>"`, `"-|>"`
+- `CurvedArrow(points=[...], arrow_head_type="->", arrow_head_size=10.0, arrow_head_angle=45.0, ...)`
+- `Curve(points=[(x1, y1), (x2, y2), ...], stroke_style=..., sketch_style=...)`
 
-#### Flowcharts and Diagrams
-```python
-# Common flowchart nodes
-start = FlowchartTerminator(
-    text="Start",
-    top_left=(760, 140),
-    width=250,
-    height=100,
-    font_size=40,
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-    fill_style=FillStyle(color=GREEN, opacity=0.25, hachure_gap=10),
-)
+### Shapes
 
-step = FlowchartProcess(
-    text="Collect Input",
-    top_left=(700, 310),
-    width=370,
-    height=110,
-    font_size=34,
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-    fill_style=FillStyle(color=BLUE, opacity=0.2, hachure_gap=10),
-)
+- `Polygon(points=[...], stroke_style=..., fill_style=..., sketch_style=...)`
+- `Rectangle(top_left=(x, y), width=w, height=h, ...)`
+- `Square(top_left=(x, y), side_length=s, ...)`
+- `RoundedRectangle(top_left=(x, y), width=w, height=h, border_radius=0.1, ...)`
+  - `border_radius` is a fraction of the smaller side
+- `RoundedSquare(top_left=(x, y), side_length=s, border_radius=0.1, ...)`
+- `Ellipse(center=(cx, cy), width=w, height=h, ...)`
+- `Circle(center=(cx, cy), radius=r, ...)`
+- `NGon(center=(cx, cy), radius=r, n=5, ...)`
 
-decision = FlowchartDecision(
-    text="Valid?",
-    top_left=(760, 500),
-    width=250,
-    height=160,
-    font_size=32,
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-    fill_style=FillStyle(color=ORANGE, opacity=0.25, hachure_gap=10),
-)
+### Flowcharts and diagrams
 
-io_box = FlowchartInputOutput(
-    text="Ask User",
-    top_left=(1180, 525),
-    width=280,
-    height=100,
-    font_size=30,
-)
+- Exported: `FlowchartNode`, `FlowchartProcess`, `FlowchartDecision`, `FlowchartTerminator`, `FlowchartInputOutput`, `FlowchartConnector`
+- Usually instantiate the specific node classes, not `FlowchartNode` directly.
+- Node signature pattern:
+  - `FlowchartProcess(text, top_left, width, height, font_size=30, font_name=None, text_padding=18.0, text_stroke_style=None, stroke_style=..., fill_style=..., sketch_style=...)`
+- Shape meaning:
+  - `FlowchartProcess`: rectangle
+  - `FlowchartDecision`: diamond
+  - `FlowchartTerminator`: rounded start/end node
+  - `FlowchartInputOutput`: slanted parallelogram-style I/O node
+- Node helpers:
+  - `node.center`
+  - `node.anchor_point("top" | "right" | "bottom" | "left" | "center")`
+  - `node.connect_to(other, start_side=None, end_side=None, waypoints=None, elbow=None, stroke_style=..., sketch_style=...)`
+  - `elbow` supports `"horizontal"` or `"vertical"`
+- Direct connector:
+  - `FlowchartConnector(start=(x1, y1), end=(x2, y2), waypoints=[...], arrow_head_type="->", arrow_head_size=10.0, arrow_head_angle=45.0, ...)`
 
-# Anchor helpers: "top", "right", "bottom", "left", "center"
-top_anchor = decision.anchor_point("top")
+### Text and math
 
-# Simple node-to-node connectors
-main_arrow = start.connect_to(step, stroke_style=StrokeStyle(color=BLACK, width=2))
-branch_arrow = decision.connect_to(
-    io_box,
-    start_side="right",
-    end_side="left",
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-)
+- `Text(text="Hello", position=(x, y), font_size=48, font_name=None, scale_factor=1.0, rect_box=None, rect_padding=0.0, stroke_style=..., sketch_style=..., glow_dot_hint=...)`
+- `Math(tex_expression=r"$a^2+b^2=c^2$", position=(x, y), font_size=96, font_name="handanimtype1", stroke_style=..., sketch_style=..., glow_dot_hint=...)`
+- Use raw strings for LaTeX math: `r"$...$"`
+- Important fonts:
+  - `"feasibly"` = best default for handwritten text
+  - `"handanimtype1"` = default math font
+  - also available: `"headstay"`, `"backstay"`, `"caveat"`, `"permanent_marker"`, `"notosans_math"`
+- `rect_box=(x, y, w, h)` and `rect_padding` are useful for centering text inside boxes/nodes.
 
-# Elbow / loopback connectors with explicit waypoints
-loopback = io_box.connect_to(
-    step,
-    start_side="top",
-    end_side="right",
-    waypoints=[(1320, 340), (1070, 340)],
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-)
+### SVG and vector art
 
-# Or create a connector directly
-connector = FlowchartConnector(
-    start=(885, 660),
-    end=(885, 780),
-    stroke_style=StrokeStyle(color=BLACK, width=2),
-)
-```
+- `SVG.from_svg_file("assets/diagram.svg", position=(x, y), stroke_style=..., sketch_style=..., glow_dot_hint=...)`
+- `SVG(svg_paths=[...], position=(x, y), ...)`
+- `VectorSVG.from_svg_file("assets/diagram.svg", position=(x, y), glow_dot_hint=...)`
+- Transform vector objects with `.scale(...)`, `.translate(...)`, `.rotate(...)`.
 
-#### Text and Mathematics
-```python
-# Available Fonts:
-# - "feasibly" (Default for Text, single-line handwriting)
-# - "headstay" (Handwriting)
-# - "backstay" (Single-line handwriting)
-# - "caveat" (Handwriting)
-# - "permanent_marker" (Bold marker style)
-# - "notosans_math" (Standard math font)
-# - "handanimtype1" (Default for Math, custom SVG font)
+### Raster media
 
-FONT_NAME = "feasibly"
+- `Image(path="assets/photo.png", top_left=(x, y), width=None, height=None, preserve_aspect_ratio=True, opacity=1.0, ...)`
+- `Video(path="assets/clip.mp4", top_left=(x, y), width=None, height=None, preserve_aspect_ratio=True, opacity=1.0, scene_start=0.0, source_start=0.0, playback_rate=1.0, loop=True, source_fps=None, ...)`
+- Use `FadeInAnimation` / `FadeOutAnimation` for image/video appearance.
 
-# Plain text
-title = Text(
-    text="Pythagoras' Theorem",
-    position=(300, 500),  # x, y coordinates
-    font_size=192,
-    font_name=FONT_NAME,  # Optional: specify font name
-    stroke_style=StrokeStyle(color=BLUE, width=2),
-    glow_dot_hint={"color": BLUE, "radius": 5},  # Shows animated pen tip
-)
+### Erasing
 
-# LaTeX math (uses standard LaTeX syntax)
-formula = Math(
-    tex_expression=r"$a^2 + b^2 = c^2$",  # raw string with $ for math mode
-    position=(900, 300),
-    font_size=128,
-    stroke_style=StrokeStyle(color=BLUE, width=2),
-    font_name=FONT_NAME,
-    glow_dot_hint={"color": BLUE, "radius": 5},
-)
-```
+- `Eraser(objects_to_erase=[drawable1, drawable2], drawable_cache=scene.drawable_cache, glow_dot_hint={"color": ERASER_HINT_COLOR, "radius": 10})`
+- Add it with `SketchAnimation` to get a whiteboard erasing effect.
 
-#### The Eraser (Whiteboard Effect)
-```python
-eraser = Eraser(
-    objects_to_erase=[title_text, triangle],  # List of drawables to "erase"
-    drawable_cache=scene.drawable_cache,
-    glow_dot_hint={"color": ERASER_HINT_COLOR, "radius": 10},
-)
-scene.add(SketchAnimation(start_time=3.5, duration=1.5), drawable=eraser)
-```
+## Transformations
 
-#### SVG Import
-```python
-from pathlib import Path
-svg_object = VectorSVG.from_svg_file(
-    svg_path=Path("assets/diagram.svg"),
-    position=(1500, 700),
-    glow_dot_hint={"color": BLUE, "radius": 5},
-)
-svg_object.scale(0.5, 0.5)  # Apply transformation
-```
+Transformations return **new drawables**:
 
-#### Raster Media (Images and Videos)
-```python
-# Import a raster image (PNG, JPG, etc.)
-photo = Image(
-    path="assets/photo.png",
-    top_left=(100, 150),
-    width=400,            # Optional: specify width (maintains aspect ratio if height omitted)
-    height=None,          # Optional: specify height
-    opacity=1.0,          # Optional: 0.0 to 1.0
-    preserve_aspect_ratio=True
-)
-scene.add(FadeInAnimation(start_time=0, duration=2), drawable=photo)
+- `drawable.translate(offset_x=100, offset_y=50)`
+- `drawable.scale(scale_x=1.2, scale_y=1.2)`
+- `drawable.rotate(angle=45)`
+- Chaining is allowed: `obj.translate(100, 0).rotate(15).scale(1.1, 1.1)`
 
-# Import a video file (MP4, AVI, etc.)
-clip = Video(
-    path="assets/clip.mp4",
-    top_left=(600, 150),
-    width=500,
-    scene_start=2.0,      # When the video starts playing in the scene (seconds)
-    source_start=0.0,     # Start time within the source video file (seconds)
-    playback_rate=1.0,    # Speed multiplier (1.0 is normal)
-    loop=True,            # Whether to loop the video
-    opacity=1.0
-)
-scene.add(FadeInAnimation(start_time=2, duration=2), drawable=clip)
-```
+## Animation reference
 
-### Styling Classes - Complete Reference
+All animation constructors support `start_time`, `duration`, optional `easing_fun`, and optional `data`.
 
-#### StrokeStyle
-```python
-StrokeStyle(
-    color=(0, 0, 0),      # RGB tuple 0-1, or use predefined colors
-    width=1,               # Line thickness
-    opacity=1,             # 0 to 1
-    stroke_pressure=StrokePressure.CONSTANT  # CONSTANT, PROPORTIONAL, INVERSE
-)
-```
+- `SketchAnimation(start_time=0, duration=2, data={"wait_before_fill": 0.5})`
+  - most common animation
+  - progressively draws borders, then fill
+  - if a drawable has `glow_dot_hint={"color": ..., "radius": ...}`, the sketch animation shows an animated pen tip automatically
+- `FadeInAnimation(start_time=0, duration=1)`
+- `FadeOutAnimation(start_time=3, duration=1)`
+- `ZoomInAnimation(start_time=1, duration=1.5)`
+- `ZoomOutAnimation(start_time=5, duration=1.5)`
+- `TranslateToAnimation(start_time=2, duration=2, data={"point": (x, y)})`
+- `TranslateFromAnimation(start_time=2, duration=2, data={"point": (x, y)})`
+- `TranslateToPersistAnimation(start_time=2, duration=2, data={"point": (x, y)})`
+- `CompositeAnimationEvent(events=[...])`
+  - use for sequences like draw -> move -> fade or draw -> zoom + translate
 
-#### FillStyle
-```python
-FillStyle(
-    color=(0, 0, 0),       # Fill color RGB 0-1
-    opacity=1,             # Fill opacity 0-1
-    fill_pattern="hachure",  # Options: "solid", "hachure", "hatch", "zigzag", "zigzag_line"
-    hachure_angle=45,      # Angle of hatching lines (degrees)
-    hachure_gap=4,         # Spacing between hatch lines (default 4)
-    fill_weight=2,         # Thickness of fill lines
-)
-```
+## Best practices for generated code
 
-#### SketchStyle (The "Hand-Drawn" Look)
-```python
-SketchStyle(
-    bowing=1,              # Line curvature irregularity (0-10)
-    max_random_offset=2,   # Point jitter for sketchiness
-    roughness=1,           # Overall roughness multiplier (1-10 typical)
-    curve_tightness=0,     # Bezier control point tightness
-    disable_multi_stroke=False,  # Use multiple strokes for sketch effect
-    disable_font_mixture=True,   # Set to False to randomly mix fonts for each character
-)
-```
+- Prefer `Scene(width=1920, height=1088, fps=24)` unless the task clearly needs another size.
+- Use `FONT_NAME = "feasibly"` for ordinary handwriting unless a different font is requested.
+- Use `StrokeStyle(color=BLACK, width=2)` as a safe default for outlines/text.
+- Use `SketchStyle(roughness=1 to 3, bowing=1 to 2)` for a natural hand-drawn look.
+- Use `FillStyle(..., hachure_gap=8 to 12, opacity=0.2 to 0.5)` for pleasant educational diagrams.
+- Use `DrawableGroup` for labels or parts that should animate together.
+- Use `CompositeAnimationEvent` for multi-step emphasis on the same drawable.
+- Keep timings readable: major events usually 0.5 to 3 seconds.
+- Use world coordinates with generous spacing; avoid cramped layouts.
+- Prefer colors from `handanim.stylings.color` instead of raw RGB unless a custom color is required.
+- Common colors available: `BLACK`, `WHITE`, `RED`, `GREEN`, `BLUE`, `CYAN`, `AQUA`, `MAGENTA`, `YELLOW`, `LIGHT_GRAY`, `ERASER_HINT_COLOR`, `GRAY`, `DARK_GRAY`, `ORANGE`, `BROWN`, `SKY_BLUE`, `NAVY`, `TEAL`, `PINK`, `PURPLE`, `LIME`, `PASTEL_RED`, `PASTEL_GREEN`, `PASTEL_BLUE`, `PASTEL_YELLOW`, `PASTEL_ORANGE`, `PASTEL_PURPLE`.
 
-### Animation Events - Complete
+## What to generate from the description
 
-#### Timeline Management
-All animations use ABSOLUTE time from video start (seconds).
-- `start_time`: When animation begins
-- `duration`: How long the animation takes
-- Animations persist on screen after completion unless hidden/faded
+Infer and implement:
 
-#### SketchAnimation (Most Common)
-```python
-# Draw the object progressively, then fill it
-scene.add(
-    SketchAnimation(start_time=6, duration=3),
-    drawable=triangle
-)
+1. Required imports only.
+2. Scene size, background, and output path.
+3. All drawables with coordinates, styles, and grouping.
+4. All animation timings in absolute seconds.
+5. Any composite events or transformations needed.
+6. Final `scene.render(...)` call.
 
-# With fill delay
-scene.add(
-    SketchAnimation(
-        start_time=6, 
-        duration=3,
-        data={"wait_before_fill": 0.5}  # Seconds between stroke and fill
-    ),
-    drawable=triangle
-)
-```
+When the description is ambiguous:
 
-#### Fade Animations
-```python
-scene.add(FadeInAnimation(start_time=2, duration=1), drawable=label)
-scene.add(FadeOutAnimation(start_time=5, duration=1.5), drawable=old_content)
-```
+- choose a clean educational layout
+- choose sensible defaults instead of leaving TODOs
+- prefer simple primitives over over-engineered constructions
+- keep the output deterministic and reproducible
 
-#### Zoom Animations
-```python
-scene.add(ZoomInAnimation(start_time=3, duration=2), drawable=small_circle)
-scene.add(ZoomOutAnimation(start_time=8, duration=1), drawable=big_object)
-```
-
-#### Translate Animations
-```python
-# Move TO a specific position
-target_pos = (1200, 500)
-scene.add(
-    TranslateToAnimation(
-        start_time=5, 
-        duration=2,
-        data={"point": target_pos}
-    ),
-    drawable=moving_circle
-)
-
-# Move FROM a position (object starts there, moves to current position)
-scene.add(
-    TranslateFromAnimation(
-        start_time=5,
-        duration=2,
-        data={"point": start_pos}
-    ),
-    drawable=circle
-)
-
-# Translate and persist at new position (permanent move)
-scene.add(
-    TranslateToPersistAnimation(
-        start_time=5,
-        duration=2,
-        data={"point": new_position}
-    ),
-    drawable=object
-)
-```
-
-### Grouping and Composition
-
-#### DrawableGroup
-Group multiple related drawables to animate together:
-```python
-labels = [("a", (450, 600)), ("b", (700, 800))]
-label_group = DrawableGroup(
-    elements=[
-        Math(tex_expression=f"${label}$", position=pos, font_size=96)
-        for label, pos in labels
-    ]
-)
-scene.add(SketchAnimation(start_time=8, duration=2), drawable=label_group)
-```
-
-#### CompositeAnimationEvent
-Chain or parallelize animations on the same drawable:
-```python
-scene.add(
-    CompositeAnimationEvent(
-        events=[
-            # Draw it first
-            SketchAnimation(start_time=0, duration=2),
-            # Then fade it out after 2 more seconds
-            FadeOutAnimation(start_time=4, duration=1),
-        ]
-    ),
-    drawable=temporary_label
-)
-
-# Complex: Draw -> Translate while zooming out
-scene.add(
-    CompositeAnimationEvent(
-        events=[
-            SketchAnimation(start_time=10.5, duration=1),
-            ZoomOutAnimation(start_time=11.5, duration=2),
-            TranslateToAnimation(
-                start_time=11.5, duration=2, 
-                data={"point": label_destination.position}
-            ),
-        ]
-    ),
-    drawable=objects_moving
-)
-```
-
-### Transformations (Applied to Drawables)
-
-Transformations return NEW drawables (immutable):
-```python
-# Translate (offset from current position)
-moved_triangle = triangle.translate(offset_x=100, offset_y=50)
-
-# Scale (from origin or relative)
-big_triangle = triangle.scale(scale_x=1.5, scale_y=1.5)
-
-# Rotate (angle in degrees)
-rotated_arrow = arrow.rotate(angle=45)
-
-# Chaining transformations
-final = triangle.translate(100, 50).rotate(30).scale(1.2, 1.2)
-```
-
-### Rendering
-
-```python
-output_path = Path(__file__).parent / "output" / "animation.mp4"
-scene.render(output_path, max_length=15)  # Max video length in seconds
-
-# Export single frame as SVG
-scene.render_snapshot("frame.svg", frame_in_seconds=5)
-
-# Also supports GIF
-scene.render("output.gif", max_length=10)
-```
-
-## Code Generation Guidelines
-
-1. **Use relative imports**: All examples use from `handanim.X import ...`
-2. **FONT_NAME = "feasibly"**: Use this as default font
-3. **Coordinates**: Use world coordinates (viewport handles scaling to screen)
-4. **Timing**: Space animations with ~0.5s gaps between major scenes
-5. **Groups**: Use DrawableGroup for related elements (like labels)
-6. **Eraser**: Use Eraser with SketchAnimation to clear between major topics
-7. **Math expressions**: Always use raw strings `r"$...$"` for LaTeX
-8. **Scene dimensions**: Standard is `Scene(width=1920, height=1088)`
-
-## Scene Description to Code
-
-Analyze the description for:
-- What objects appear and their timing
-- Animation types and durations
-- Color and style requirements
-- Groupings and composite animations
-- Coordinate relationships (use appropriate spacing)
-
-Generate complete, runnable Python code with all necessary imports and the render call.
-
-
-Here is the description of the scene for which you need to generate the reproducible code using `handanim`.
+Generate complete, runnable Python code for this scene description:
 
 Description: {scene_description}
