@@ -17,6 +17,7 @@ from .polygons import NGon, Polygon, Rectangle, RoundedRectangle, RoundedSquare,
 from .svg import SVG
 from .table import Table
 from .text import Text
+from .three_d import Cone, Cube, Cylinder, Dot3D, Line3D, ParametricSurface, Prism, Sphere, Surface, ThreeDAxes, Torus
 from .vector_svg import VectorSVG
 
 __all__ = [
@@ -39,12 +40,23 @@ __all__ = [
     "Math",
     "NGon",
     "Polygon",
+    "ParametricSurface",
+    "Prism",
     "Rectangle",
     "RoundedRectangle",
     "RoundedSquare",
+    "Sphere",
+    "Surface",
     "Square",
     "Table",
     "Text",
+    "ThreeDAxes",
+    "Torus",
     "Video",
     "VectorSVG",
+    "Cone",
+    "Cube",
+    "Cylinder",
+    "Dot3D",
+    "Line3D",
 ]

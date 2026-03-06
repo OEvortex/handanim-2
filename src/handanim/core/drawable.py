@@ -73,6 +73,44 @@ class Drawable:
         """
         return TransformedDrawable(self, "rotate", {"angle": angle})
 
+    def translate3d(self, offset_x: float, offset_y: float, offset_z: float):
+        return TransformedDrawable(
+            self,
+            "translate_3d",
+            {"offset_x": offset_x, "offset_y": offset_y, "offset_z": offset_z},
+        )
+
+    def scale3d(
+        self,
+        scale_x: float,
+        scale_y: float | None = None,
+        scale_z: float | None = None,
+    ):
+        return TransformedDrawable(
+            self,
+            "scale_3d",
+            {"scale_x": scale_x, "scale_y": scale_y, "scale_z": scale_z},
+        )
+
+    def rotate3d(
+        self,
+        angle: float,
+        axis: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        center_of_rotation: tuple[float, float, float] | None = None,
+    ):
+        return TransformedDrawable(
+            self,
+            "rotate_3d",
+            {
+                "angle": angle,
+                "axis": axis,
+                "center_of_rotation": center_of_rotation,
+            },
+        )
+
+    def move_to3d(self, point: tuple[float, float, float]):
+        return TransformedDrawable(self, "move_to_3d", {"point": point})
+
     def copy(self, new_id: bool = True):
         """Create a deep copy of the drawable."""
         drawable_copy = deepcopy(self)

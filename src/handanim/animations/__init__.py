@@ -1,6 +1,15 @@
 from .fade import FadeInAnimation, FadeOutAnimation
 from .morph import MorphAnimation, ReplacementTransformAnimation, TransformAnimation
 from .sketch import SketchAnimation
+from .three_d import (
+    AmbientCameraRotationAnimation,
+    IllusionCameraRotationAnimation,
+    MoveCameraAnimation,
+    MoveTo3DAnimation,
+    Rotate3DAnimation,
+    Scale3DAnimation,
+    Translate3DAnimation,
+)
 from .transform import (
     ApplyComplexFunction,
     ApplyFunction,
@@ -42,12 +51,18 @@ __all__ = [
     "FadeTransformPieces",
     "FadeInAnimation",
     "FadeOutAnimation",
+    "IllusionCameraRotationAnimation",
     "MorphAnimation",
+    "MoveCameraAnimation",
+    "MoveTo3DAnimation",
     "MoveToTarget",
+    "AmbientCameraRotationAnimation",
     "ReplacementTransform",
     "ReplacementTransformAnimation",
+    "Rotate3DAnimation",
     "Restore",
     "ScaleInPlace",
+    "Scale3DAnimation",
     "SketchAnimation",
     "ShrinkToCenter",
     "Swap",
@@ -55,6 +70,7 @@ __all__ = [
     "TransformAnimations",
     "TransformAnimation",
     "TransformFromCopy",
+    "Translate3DAnimation",
     "TranslateFromAnimation",
     "TranslateToAnimation",
     "TranslateToPersistAnimation",

@@ -11,6 +11,7 @@ import cairo
 import imageio.v2 as imageio
 import numpy as np
 
+from .camera_3d import ThreeDCamera
 from .utils import (
     get_bezier_extreme_points,
     get_bezier_points_from_quadcurve,
@@ -276,6 +277,178 @@ class OpsType(Enum):
     DOT = "dot"
     IMAGE = "image"
     VIDEO = "video"
+    POLYGON_3D = "polygon_3d"
+    POLYLINE_3D = "polyline_3d"
+
+
+def _normalize_vector(vector: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(vector))
+    if norm <= 1e-9:
+        return np.zeros_like(vector, dtype=float)
+    return np.asarray(vector, dtype=float) / norm
+
+
+def _rotation_matrix_3d(axis: tuple[float, float, float] | np.ndarray, angle_degrees: float) -> np.ndarray:
+    unit_axis = _normalize_vector(np.array(axis, dtype=float))
+    if np.linalg.norm(unit_axis) <= 1e-9:
+        return np.identity(3, dtype=float)
+
+    x_coord, y_coord, z_coord = unit_axis
+    angle_radians = float(np.deg2rad(angle_degrees))
+    cos_theta = float(np.cos(angle_radians))
+    sin_theta = float(np.sin(angle_radians))
+    one_minus_cos = 1.0 - cos_theta
+    return np.array(
+        [
+            [
+                cos_theta + x_coord * x_coord * one_minus_cos,
+                x_coord * y_coord * one_minus_cos - z_coord * sin_theta,
+                x_coord * z_coord * one_minus_cos + y_coord * sin_theta,
+            ],
+            [
+                y_coord * x_coord * one_minus_cos + z_coord * sin_theta,
+                cos_theta + y_coord * y_coord * one_minus_cos,
+                y_coord * z_coord * one_minus_cos - x_coord * sin_theta,
+            ],
+            [
+                z_coord * x_coord * one_minus_cos - y_coord * sin_theta,
+                z_coord * y_coord * one_minus_cos + x_coord * sin_theta,
+                cos_theta + z_coord * z_coord * one_minus_cos,
+            ],
+        ],
+        dtype=float,
+    )
+
+
+def _build_path_ops(
+    points: list[tuple[float, float]],
+    close: bool,
+    color: tuple[float, float, float] | None,
+    opacity: float,
+    width: float,
+    mode: str,
+) -> "OpsSet":
+    opsset = OpsSet(initial_set=[])
+    if not points or color is None or opacity <= 0:
+        return opsset
+    if mode == "stroke" and width <= 0:
+        return opsset
+    opsset.add(
+        Ops(
+            type=OpsType.SET_PEN,
+            data={
+                "color": tuple(color),
+                "opacity": float(opacity),
+                "width": float(width),
+                "mode": mode,
+            },
+        )
+    )
+    opsset.add(Ops(type=OpsType.MOVE_TO, data=[points[0]]))
+    for point in points[1:]:
+        opsset.add(Ops(type=OpsType.LINE_TO, data=[point]))
+    if close:
+        opsset.add(Ops(type=OpsType.CLOSE_PATH, data=None))
+    return opsset
+
+
+def _shade_color(
+    base_color: tuple[float, float, float] | None,
+    normal: np.ndarray,
+    face_center: np.ndarray,
+    light_source: np.ndarray,
+    shading_factor: float,
+) -> tuple[float, float, float] | None:
+    if base_color is None:
+        return None
+    normal_unit = _normalize_vector(normal)
+    if np.linalg.norm(normal_unit) <= 1e-9:
+        return tuple(base_color)
+    light_direction = _normalize_vector(np.array(light_source, dtype=float) - np.array(face_center, dtype=float))
+    diffuse = max(float(np.dot(normal_unit, light_direction)), 0.0)
+    brightness = (1.0 - shading_factor) + shading_factor * diffuse
+    shaded = np.clip(np.array(base_color, dtype=float) * brightness, 0.0, 1.0)
+    return tuple(float(value) for value in shaded)
+
+
+def _interpolate_to_z_plane(point_a: np.ndarray, point_b: np.ndarray, max_z: float) -> np.ndarray:
+    delta_z = float(point_b[2] - point_a[2])
+    if abs(delta_z) <= 1e-9:
+        return np.array(point_a, dtype=float)
+    alpha = np.clip((max_z - point_a[2]) / delta_z, 0.0, 1.0)
+    return np.array(point_a + alpha * (point_b - point_a), dtype=float)
+
+
+def _clip_polygon_to_max_z(points: np.ndarray, max_z: float) -> np.ndarray:
+    if len(points) == 0:
+        return np.empty((0, 3), dtype=float)
+
+    clipped_points: list[np.ndarray] = []
+    previous_point = np.array(points[-1], dtype=float)
+    previous_inside = bool(previous_point[2] <= max_z)
+
+    for current_point_raw in points:
+        current_point = np.array(current_point_raw, dtype=float)
+        current_inside = bool(current_point[2] <= max_z)
+
+        if current_inside:
+            if not previous_inside:
+                clipped_points.append(_interpolate_to_z_plane(previous_point, current_point, max_z))
+            clipped_points.append(current_point)
+        elif previous_inside:
+            clipped_points.append(_interpolate_to_z_plane(previous_point, current_point, max_z))
+
+        previous_point = current_point
+        previous_inside = current_inside
+
+    if not clipped_points:
+        return np.empty((0, 3), dtype=float)
+    return np.array(clipped_points, dtype=float)
+
+
+def _clip_polyline_to_max_z(points: np.ndarray, max_z: float, closed: bool = False) -> list[np.ndarray]:
+    if len(points) < 2:
+        return []
+
+    point_list = [np.array(point, dtype=float) for point in points]
+    segment_pairs = list(zip(point_list[:-1], point_list[1:]))
+    if closed:
+        segment_pairs.append((point_list[-1], point_list[0]))
+
+    clipped_paths: list[list[np.ndarray]] = []
+    current_path: list[np.ndarray] = []
+
+    for point_a, point_b in segment_pairs:
+        a_inside = bool(point_a[2] <= max_z)
+        b_inside = bool(point_b[2] <= max_z)
+
+        if a_inside and b_inside:
+            if not current_path:
+                current_path.append(point_a)
+            current_path.append(point_b)
+            continue
+
+        if a_inside and not b_inside:
+            if not current_path:
+                current_path.append(point_a)
+            current_path.append(_interpolate_to_z_plane(point_a, point_b, max_z))
+            if len(current_path) >= 2:
+                clipped_paths.append(current_path)
+            current_path = []
+            continue
+
+        if (not a_inside) and b_inside:
+            current_path = [_interpolate_to_z_plane(point_a, point_b, max_z), point_b]
+            continue
+
+        if len(current_path) >= 2:
+            clipped_paths.append(current_path)
+        current_path = []
+
+    if len(current_path) >= 2:
+        clipped_paths.append(current_path)
+
+    return [np.array(path, dtype=float) for path in clipped_paths]
 
 
 class Ops:
@@ -374,6 +547,31 @@ class OpsSet:
         """Return a shallow structural copy of the opsset."""
         return OpsSet(initial_set=self.opsset)
 
+    def get_meta_chunks(self, meta_key: str) -> list[tuple[Any | None, "OpsSet"]]:
+        chunks: list[tuple[Any | None, OpsSet]] = []
+        current_chunk: list[Ops] = []
+        current_value: Any | None = None
+
+        for ops in self.opsset:
+            value = ops.meta.get(meta_key) if ops.meta is not None else None
+            if not current_chunk:
+                current_chunk = [ops]
+                current_value = value
+                continue
+            if value == current_value:
+                current_chunk.append(ops)
+                continue
+            chunks.append((current_value, OpsSet(initial_set=current_chunk)))
+            current_chunk = [ops]
+            current_value = value
+
+        if current_chunk:
+            chunks.append((current_value, OpsSet(initial_set=current_chunk)))
+        return chunks
+
+    def has_3d_ops(self) -> bool:
+        return any(ops.type in {OpsType.POLYGON_3D, OpsType.POLYLINE_3D} for ops in self.opsset)
+
     def transform_points(self, point_transform) -> None:
         """Apply a pointwise transformation to supported point-bearing ops."""
 
@@ -396,6 +594,29 @@ class OpsSet:
                 new_ops.append(Ops(ops.type, new_data, ops.partial, ops.meta))
             else:
                 new_ops.append(ops)
+        self.opsset = new_ops
+
+    def transform_points_3d(self, point_transform) -> None:
+        """Apply a pointwise transformation to 3D point-bearing ops."""
+
+        def _normalize_point(point):
+            new_point = point_transform(np.array(point, dtype=float))
+            return (
+                float(new_point[0]),
+                float(new_point[1]),
+                float(new_point[2]),
+            )
+
+        new_ops = []
+        for ops in self.opsset:
+            if isinstance(ops.data, dict) and isinstance(ops.data.get("points"), list):
+                sample_points = ops.data.get("points", [])
+                if sample_points and len(sample_points[0]) == 3:
+                    new_data = dict(ops.data)
+                    new_data["points"] = [_normalize_point(point) for point in sample_points]
+                    new_ops.append(Ops(ops.type, new_data, ops.partial, ops.meta))
+                    continue
+            new_ops.append(ops)
         self.opsset = new_ops
 
     def get_bbox(self) -> tuple[float, float, float, float]:
@@ -469,6 +690,35 @@ class OpsSet:
         """
         min_x, min_y, max_x, max_y = self.get_bbox()
         return (min_x + max_x) / 2, (min_y + max_y) / 2
+
+    def get_bbox_3d(self) -> tuple[float, float, float, float, float, float]:
+        min_x = min_y = min_z = float("inf")
+        max_x = max_y = max_z = float("-inf")
+        found_point = False
+        for ops in self.opsset:
+            if not isinstance(ops.data, dict) or not isinstance(ops.data.get("points"), list):
+                continue
+            for point in ops.data.get("points", []):
+                if len(point) != 3:
+                    continue
+                found_point = True
+                min_x = min(min_x, float(point[0]))
+                min_y = min(min_y, float(point[1]))
+                min_z = min(min_z, float(point[2]))
+                max_x = max(max_x, float(point[0]))
+                max_y = max(max_y, float(point[1]))
+                max_z = max(max_z, float(point[2]))
+        if not found_point:
+            return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        return (min_x, min_y, min_z, max_x, max_y, max_z)
+
+    def get_center_of_gravity_3d(self) -> tuple[float, float, float]:
+        min_x, min_y, min_z, max_x, max_y, max_z = self.get_bbox_3d()
+        return (
+            (min_x + max_x) / 2,
+            (min_y + max_y) / 2,
+            (min_z + max_z) / 2,
+        )
 
     def get_last_ops(self, start_index: int = 0) -> tuple[float | None, Ops | None]:
         """
@@ -569,6 +819,14 @@ class OpsSet:
                 new_ops.append(ops)  # keep same ops
         self.opsset = new_ops
 
+    def translate_3d(self, offset_x: float, offset_y: float, offset_z: float) -> None:
+        self.transform_points_3d(
+            lambda point: np.array(
+                [point[0] + offset_x, point[1] + offset_y, point[2] + offset_z],
+                dtype=float,
+            )
+        )
+
     def scale(self, scale_x: float, scale_y: float | None = None) -> None:
         """
         Scales the operations in the opsset relative to its center of gravity.
@@ -614,6 +872,37 @@ class OpsSet:
             else:
                 new_ops.append(ops)  # keep same ops for set pen type operations
         self.opsset = new_ops  # update the ops list
+
+    def scale_3d(
+        self,
+        scale_x: float,
+        scale_y: float | None = None,
+        scale_z: float | None = None,
+        center_of_scaling: tuple[float, float, float] | None = None,
+    ) -> None:
+        if scale_y is None:
+            scale_y = scale_x
+        if scale_z is None:
+            scale_z = scale_x
+        if center_of_scaling is None:
+            center_of_scaling = self.get_center_of_gravity_3d()
+
+        cx, cy, cz = center_of_scaling
+        self.transform_points_3d(
+            lambda point: np.array(
+                [
+                    cx + scale_x * (point[0] - cx),
+                    cy + scale_y * (point[1] - cy),
+                    cz + scale_z * (point[2] - cz),
+                ],
+                dtype=float,
+            )
+        )
+
+    def move_to_3d(self, point: tuple[float, float, float] | np.ndarray) -> None:
+        cx, cy, cz = self.get_center_of_gravity_3d()
+        point_array = np.array(point, dtype=float)
+        self.translate_3d(point_array[0] - cx, point_array[1] - cy, point_array[2] - cz)
 
     def rotate(self, angle: float, center_of_rotation: tuple[float, float] | None = None) -> None:
         """
@@ -664,6 +953,131 @@ class OpsSet:
                 new_ops.append(ops)  # keep same ops for set pen type operations
         self.opsset = new_ops  # update the ops list
 
+    def rotate_3d(
+        self,
+        angle: float,
+        axis: tuple[float, float, float] | np.ndarray = (0.0, 0.0, 1.0),
+        center_of_rotation: tuple[float, float, float] | None = None,
+    ) -> None:
+        if center_of_rotation is None:
+            center_of_rotation = self.get_center_of_gravity_3d()
+        center_array = np.array(center_of_rotation, dtype=float)
+        rotation_matrix = _rotation_matrix_3d(axis=axis, angle_degrees=angle)
+        self.transform_points_3d(
+            lambda point: center_array + rotation_matrix @ (np.array(point, dtype=float) - center_array)
+        )
+
+    def project_3d(self, camera: ThreeDCamera) -> "OpsSet":
+        projected_ops = OpsSet(initial_set=[])
+        depth_entries: list[tuple[float, OpsSet]] = []
+        object_center_world = np.array(self.get_center_of_gravity_3d(), dtype=float)
+        object_center_camera = camera.transform_points_to_camera_space(np.array([object_center_world], dtype=float))[0]
+        near_plane_z = camera.focal_distance - camera.get_near_clip_epsilon()
+
+        for ops in self.opsset:
+            if ops.type not in {OpsType.POLYGON_3D, OpsType.POLYLINE_3D}:
+                projected_ops.add(ops)
+                continue
+
+            point_array = np.array(ops.data.get("points", []), dtype=float)
+            if point_array.size == 0:
+                continue
+            camera_points = camera.transform_points_to_camera_space(point_array)
+
+            if ops.type == OpsType.POLYLINE_3D:
+                clipped_paths = _clip_polyline_to_max_z(
+                    camera_points,
+                    max_z=near_plane_z,
+                    closed=bool(ops.data.get("closed", False)),
+                )
+                for clipped_path in clipped_paths:
+                    screen_points, depths = camera.project_camera_space_points(clipped_path)
+                    if not np.isfinite(screen_points).all():
+                        continue
+                    flat_points = [(float(point[0]), float(point[1])) for point in screen_points]
+                    depth_value = float(np.mean(depths))
+                    path_ops = _build_path_ops(
+                        points=flat_points,
+                        close=bool(ops.data.get("closed", False)) and len(clipped_paths) == 1,
+                        color=ops.data.get("stroke_color"),
+                        opacity=float(ops.data.get("stroke_opacity", 1.0)),
+                        width=float(ops.data.get("stroke_width", 1.0)),
+                        mode="stroke",
+                    )
+                    path_ops.add_meta({"depth_3d": depth_value})
+                    depth_entries.append((depth_value, path_ops))
+                continue
+
+            clipped_camera_points = _clip_polygon_to_max_z(camera_points, max_z=near_plane_z)
+            if len(clipped_camera_points) < 3:
+                continue
+
+            normal_camera = np.cross(
+                clipped_camera_points[1] - clipped_camera_points[0],
+                clipped_camera_points[2] - clipped_camera_points[0],
+            )
+            if float(np.dot(normal_camera, np.mean(clipped_camera_points, axis=0) - object_center_camera)) < 0:
+                normal_camera = -normal_camera
+            backface_cull = bool(ops.data.get("backface_cull", False))
+            visibility_score = float(
+                np.dot(
+                    normal_camera,
+                    np.array([0.0, 0.0, camera.focal_distance], dtype=float) - np.mean(clipped_camera_points, axis=0),
+                )
+            )
+            if backface_cull and visibility_score <= 1e-9:
+                continue
+
+            screen_points, depths = camera.project_camera_space_points(clipped_camera_points)
+            if not np.isfinite(screen_points).all():
+                continue
+            flat_points = [(float(point[0]), float(point[1])) for point in screen_points]
+            face_center = np.mean(point_array, axis=0)
+            if len(point_array) >= 3:
+                normal = np.cross(point_array[1] - point_array[0], point_array[2] - point_array[0])
+                if float(np.dot(normal, face_center - object_center_world)) < 0:
+                    normal = -normal
+            else:
+                normal = np.array([0.0, 0.0, 1.0], dtype=float)
+            shading_factor = ops.data.get("shading_factor")
+            if shading_factor is None:
+                shading_factor = camera.shading_factor
+            fill_color = _shade_color(
+                base_color=ops.data.get("fill_color"),
+                normal=normal,
+                face_center=face_center,
+                light_source=np.array(camera.light_source, dtype=float),
+                shading_factor=float(shading_factor),
+            )
+            face_ops = OpsSet(initial_set=[])
+            face_ops.extend(
+                _build_path_ops(
+                    points=flat_points,
+                    close=True,
+                    color=fill_color,
+                    opacity=float(ops.data.get("fill_opacity", 0.0)),
+                    width=0.0,
+                    mode="fill",
+                )
+            )
+            face_ops.extend(
+                _build_path_ops(
+                    points=flat_points,
+                    close=True,
+                    color=ops.data.get("stroke_color"),
+                    opacity=float(ops.data.get("stroke_opacity", 1.0)),
+                    width=float(ops.data.get("stroke_width", 1.0)),
+                    mode="stroke",
+                )
+            )
+            depth_value = float(np.mean(depths))
+            face_ops.add_meta({"depth_3d": depth_value})
+            depth_entries.append((depth_value, face_ops))
+
+        for _depth, path_ops in sorted(depth_entries, key=lambda item: item[0]):
+            projected_ops.extend(path_ops)
+        return projected_ops
+
     def render(
         self,
         ctx: cairo.Context,
@@ -687,6 +1101,11 @@ class OpsSet:
         """
         if render_context is None:
             render_context = {}
+
+        if self.has_3d_ops() and render_context.get("camera_3d") is not None:
+            projected_ops = self.project_3d(render_context["camera_3d"])
+            projected_ops.render(ctx, initial_mode=initial_mode, render_context=render_context)
+            return
 
         mode = initial_mode
         has_path = False  # initially there is no path
@@ -742,6 +1161,8 @@ class OpsSet:
                     ctx.set_source_rgba(r, g, b, ops.data.get("opacity", 1))
                 if ops.data.get("width"):
                     ctx.set_line_width(ops.data.get("width"))
+                ctx.set_line_cap(cairo.LineCap.ROUND)
+                ctx.set_line_join(cairo.LineJoin.ROUND)
             elif ops.type == OpsType.METADATA:
                 pass  # ignore metadata ops
             elif ops.type == OpsType.DOT:

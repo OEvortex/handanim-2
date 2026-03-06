@@ -43,13 +43,26 @@ class Viewport:
         Args:
             ctx (cairo.Context): The cairo drawing context to transform
         """
-        world_width = self.world_xrange[1] - self.world_xrange[0]
-        world_height = self.world_yrange[1] - self.world_yrange[0]
-
-        scale_x = (self.screen_width - self.margin * 2) / world_width
-        scale_y = (self.screen_height - self.margin * 2) / world_height
-        scale = min(scale_x, scale_y)  # scale to fit the smaller dimension
-
-        # translation to account for margin and centering
+        scale = self.get_scale()
         ctx.translate(self.margin, self.margin)
         ctx.scale(scale, scale)
+        ctx.translate(-self.world_xrange[0], -self.world_yrange[0])
+
+    def get_scale(self) -> float:
+        world_width = self.world_xrange[1] - self.world_xrange[0]
+        world_height = self.world_yrange[1] - self.world_yrange[0]
+        scale_x = (self.screen_width - self.margin * 2) / world_width
+        scale_y = (self.screen_height - self.margin * 2) / world_height
+        return min(scale_x, scale_y)
+
+    def world_to_screen(self, point: tuple[float, float]) -> tuple[float, float]:
+        scale = self.get_scale()
+        x_coord = self.margin + (point[0] - self.world_xrange[0]) * scale
+        y_coord = self.margin + (point[1] - self.world_yrange[0]) * scale
+        return (float(x_coord), float(y_coord))
+
+    def screen_to_world(self, point: tuple[float, float]) -> tuple[float, float]:
+        scale = self.get_scale()
+        x_coord = self.world_xrange[0] + (point[0] - self.margin) / scale
+        y_coord = self.world_yrange[0] + (point[1] - self.margin) / scale
+        return (float(x_coord), float(y_coord))
