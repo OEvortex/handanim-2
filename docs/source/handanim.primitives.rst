@@ -28,6 +28,14 @@ handanim.primitives.eraser module
    :show-inheritance:
    :undoc-members:
 
+handanim.primitives.flowchart module
+------------------------------------
+
+.. automodule:: handanim.primitives.flowchart
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 handanim.primitives.lines module
 --------------------------------
 

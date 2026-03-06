@@ -2,6 +2,14 @@ from .arrow import Arrow, CurvedArrow
 from .curves import Curve
 from .ellipse import Circle, Ellipse
 from .eraser import Eraser
+from .flowchart import (
+    FlowchartConnector,
+    FlowchartDecision,
+    FlowchartInputOutput,
+    FlowchartNode,
+    FlowchartProcess,
+    FlowchartTerminator,
+)
 from .lines import Line, LinearPath
 from .media import Image, Video
 from .math import Math
@@ -18,6 +26,12 @@ __all__ = [
     "CurvedArrow",
     "Ellipse",
     "Eraser",
+    "FlowchartConnector",
+    "FlowchartDecision",
+    "FlowchartInputOutput",
+    "FlowchartNode",
+    "FlowchartProcess",
+    "FlowchartTerminator",
     "Image",
     "Line",
     "LinearPath",

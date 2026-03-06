@@ -30,6 +30,8 @@ from handanim.primitives import (
     Line, Arrow, Curve, CurvedArrow,
     Polygon, Rectangle, Square, RoundedRectangle, RoundedSquare,
     Ellipse, Circle, NGon,
+    FlowchartProcess, FlowchartDecision, FlowchartTerminator,
+    FlowchartInputOutput, FlowchartConnector,
     Text, Math, Eraser, SVG, VectorSVG,
     Image, Video
 )
@@ -104,6 +106,76 @@ sun = Circle(
     stroke_style=StrokeStyle(color=WHITE),
     fill_style=FillStyle(color=YELLOW, hachure_gap=10),
     sketch_style=SketchStyle(roughness=2),
+)
+```
+
+#### Flowcharts and Diagrams
+```python
+# Common flowchart nodes
+start = FlowchartTerminator(
+    text="Start",
+    top_left=(760, 140),
+    width=250,
+    height=100,
+    font_size=40,
+    stroke_style=StrokeStyle(color=BLACK, width=2),
+    fill_style=FillStyle(color=GREEN, opacity=0.25, hachure_gap=10),
+)
+
+step = FlowchartProcess(
+    text="Collect Input",
+    top_left=(700, 310),
+    width=370,
+    height=110,
+    font_size=34,
+    stroke_style=StrokeStyle(color=BLACK, width=2),
+    fill_style=FillStyle(color=BLUE, opacity=0.2, hachure_gap=10),
+)
+
+decision = FlowchartDecision(
+    text="Valid?",
+    top_left=(760, 500),
+    width=250,
+    height=160,
+    font_size=32,
+    stroke_style=StrokeStyle(color=BLACK, width=2),
+    fill_style=FillStyle(color=ORANGE, opacity=0.25, hachure_gap=10),
+)
+
+io_box = FlowchartInputOutput(
+    text="Ask User",
+    top_left=(1180, 525),
+    width=280,
+    height=100,
+    font_size=30,
+)
+
+# Anchor helpers: "top", "right", "bottom", "left", "center"
+top_anchor = decision.anchor_point("top")
+
+# Simple node-to-node connectors
+main_arrow = start.connect_to(step, stroke_style=StrokeStyle(color=BLACK, width=2))
+branch_arrow = decision.connect_to(
+    io_box,
+    start_side="right",
+    end_side="left",
+    stroke_style=StrokeStyle(color=BLACK, width=2),
+)
+
+# Elbow / loopback connectors with explicit waypoints
+loopback = io_box.connect_to(
+    step,
+    start_side="top",
+    end_side="right",
+    waypoints=[(1320, 340), (1070, 340)],
+    stroke_style=StrokeStyle(color=BLACK, width=2),
+)
+
+# Or create a connector directly
+connector = FlowchartConnector(
+    start=(885, 660),
+    end=(885, 780),
+    stroke_style=StrokeStyle(color=BLACK, width=2),
 )
 ```
 
