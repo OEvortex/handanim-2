@@ -20,6 +20,14 @@ handanim.animations.morph module
    :show-inheritance:
    :undoc-members:
 
+handanim.animations.transform module
+------------------------------------
+
+.. automodule:: handanim.animations.transform
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
 handanim.animations.sketch module
 ---------------------------------
 

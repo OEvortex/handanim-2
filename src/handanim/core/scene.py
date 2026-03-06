@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from .animation import AnimationEvent, AnimationEventType, CompositeAnimationEvent
 from .draw_ops import OpsSet
-from .drawable import Drawable, DrawableCache, DrawableGroup, EmptyDrawable
+from .drawable import Drawable, DrawableCache, DrawableGroup, EmptyDrawable, FrozenDrawable
 from .utils import cairo_surface_to_numpy
 from .viewport import Viewport
 
@@ -95,7 +95,7 @@ class Scene:
     def add(
         self,
         event: AnimationEvent,
-        drawable: Drawable,
+        drawable: Drawable | None = None,
     ) -> None:
         """
         Adds an animation event to a drawable primitive in the scene.
@@ -116,6 +116,24 @@ class Scene:
             for sub_event in event.events:
                 self.add(sub_event, drawable)  # recursively call add() for the subevents
             return
+
+        if drawable is None:
+            drawable = getattr(event, "source_drawable", None)
+        if drawable is None:
+            msg = "Scene.add() requires a drawable unless the event provides source_drawable"
+            raise ValueError(msg)
+
+        expand_for_scene = getattr(event, "expand_for_scene", None)
+        if callable(expand_for_scene):
+            expanded_events = expand_for_scene(scene=self, drawable=drawable)
+            if expanded_events is not None:
+                for expanded_event, expanded_drawable in expanded_events:
+                    self.add(expanded_event, expanded_drawable)
+                return
+
+        resolve_target_drawable = getattr(event, "resolve_target_drawable", None)
+        if callable(resolve_target_drawable) and getattr(event, "target_drawable", None) is None:
+            event.target_drawable = resolve_target_drawable(drawable=drawable, scene=self)
 
         if isinstance(drawable, DrawableGroup):
             target_drawable = getattr(event, "target_drawable", None)
@@ -242,6 +260,40 @@ class Scene:
             if active:
                 active_list.append(object_id)
         return active_list
+
+    def get_drawable_opsset_at_scene_time(self, drawable_id: str, scene_time: float) -> OpsSet:
+        """Preview the drawable's animated opsset at a specific scene time."""
+        if drawable_id not in self.drawable_cache.drawables:
+            return OpsSet(initial_set=[])
+        _key_frames, drawable_events_mapping = self.find_key_frames()
+        frame_index = int(round(scene_time * self.fps))
+        event_and_progress = self.get_object_event_and_progress(drawable_id, frame_index, drawable_events_mapping)
+        self.drawablegroup_frame_cache = {}
+        self.drawablegroup_transformed_frame_cache = {}
+        return self.get_animated_opsset_at_time(
+            drawable_id=drawable_id,
+            t=frame_index,
+            event_and_progress=event_and_progress,
+            drawable_events_mapping=drawable_events_mapping,
+        )
+
+    def snapshot_drawable_at_time(self, drawable: Drawable, scene_time: float) -> FrozenDrawable:
+        """Create a frozen snapshot drawable representing a drawable at scene_time."""
+        if drawable.id not in self.drawable_cache.drawables:
+            return FrozenDrawable(
+                drawable.draw(),
+                stroke_style=drawable.stroke_style,
+                sketch_style=drawable.sketch_style,
+                fill_style=drawable.fill_style,
+                glow_dot_hint=drawable.glow_dot_hint,
+            )
+        return FrozenDrawable(
+            self.get_drawable_opsset_at_scene_time(drawable.id, scene_time),
+            stroke_style=drawable.stroke_style,
+            sketch_style=drawable.sketch_style,
+            fill_style=drawable.fill_style,
+            glow_dot_hint=drawable.glow_dot_hint,
+        )
 
     def find_key_frames(self):
         """

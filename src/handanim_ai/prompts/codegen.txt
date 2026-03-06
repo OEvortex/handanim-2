@@ -24,11 +24,21 @@ You are an expert Python graphics programmer. Convert the user's scene descripti
 import os
 
 from handanim.animations import (
+    ApplyMethod,
+    ApplyPointwiseFunction,
+    CyclicReplace,
     FadeInAnimation,
     FadeOutAnimation,
+    FadeToColor,
+    MoveToTarget,
+    Restore,
     ReplacementTransformAnimation,
+    ReplacementTransform,
+    ScaleInPlace,
     SketchAnimation,
+    Transform,
     TransformAnimation,
+    TransformFromCopy,
     TranslateFromAnimation,
     TranslateToAnimation,
     TranslateToPersistAnimation,
@@ -230,6 +240,11 @@ All animation constructors support `start_time`, `duration`, optional `easing_fu
 - `FadeOutAnimation(start_time=3, duration=1)`
 - `TransformAnimation(target_drawable=target, start_time=2, duration=2, path_arc=0.0)`
 - `ReplacementTransformAnimation(target_drawable=target, start_time=4, duration=2, path_arc=0.0)`
+- Manim-style compatibility names are also available: `Transform`, `ReplacementTransform`, `FadeTransform`, `FadeTransformPieces`, `ClockwiseTransform`, `CounterclockwiseTransform`
+- Stateful transform helpers: `MoveToTarget`, `Restore`, `TransformFromCopy`
+- Method/function transforms: `ApplyMethod`, `ApplyFunction`, `ApplyPointwiseFunction`, `ApplyMatrix`, `ApplyComplexFunction`, `ApplyPointwiseFunctionToCenter`
+- Spatial helpers: `ScaleInPlace`, `ShrinkToCenter`, `CyclicReplace`, `Swap`
+- Style helper: `FadeToColor(color=(r, g, b), start_time=..., duration=...)`
 - `ZoomInAnimation(start_time=1, duration=1.5)`
 - `ZoomOutAnimation(start_time=5, duration=1.5)`
 - `TranslateToAnimation(start_time=2, duration=2, data={"point": (x, y)})`
@@ -242,6 +257,8 @@ All animation constructors support `start_time`, `duration`, optional `easing_fu
 - `path_arc` makes morphing points travel on a curved arc instead of a straight line.
 - morphing also works on parallel `DrawableGroup` objects, with smart source/target matching by geometry.
 - if group sizes differ, unmatched elements can gracefully collapse away or emerge during the morph.
+- `drawable.generate_target()` followed by `MoveToTarget(...)` gives Manim-style target-based motion.
+- `drawable.save_state()` followed by `Restore(...)` gives reversible stateful motion.
 
 ## Best practices for generated code
 

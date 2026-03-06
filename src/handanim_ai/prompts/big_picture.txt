@@ -135,6 +135,20 @@ Behavior:
 - `TranslateToPersistAnimation`
 - `TransformAnimation`
 - `ReplacementTransformAnimation`
+- `Transform`
+- `ReplacementTransform`
+- `MoveToTarget`
+- `Restore`
+- `ApplyMethod`
+- `ApplyFunction`
+- `ApplyPointwiseFunction`
+- `ApplyMatrix`
+- `ApplyComplexFunction`
+- `ScaleInPlace`
+- `ShrinkToCenter`
+- `CyclicReplace`
+- `Swap`
+- `FadeToColor`
 
 ### Composition
 - `CompositeAnimationEvent`

@@ -1,4 +1,5 @@
 import collections.abc
+from copy import deepcopy
 from uuid import uuid4
 
 from .draw_ops import OpsSet
@@ -60,7 +61,7 @@ class Drawable:
         """
         return TransformedDrawable(self, "translate", {"offset_x": offset_x, "offset_y": offset_y})
 
-    def scale(self, scale_x: float, scale_y: float):
+    def scale(self, scale_x: float, scale_y: float | None = None):
         """
         Scales the drawable object by the given scale factors
         """
@@ -71,6 +72,30 @@ class Drawable:
         Rotates the drawable object by the given angle
         """
         return TransformedDrawable(self, "rotate", {"angle": angle})
+
+    def copy(self, new_id: bool = True):
+        """Create a deep copy of the drawable."""
+        drawable_copy = deepcopy(self)
+        if new_id:
+            drawable_copy.id = uuid4().hex[:8]
+        return drawable_copy
+
+    def generate_target(self):
+        """Create a modifiable target copy for MoveToTarget-style animations."""
+        self.target = self.copy(new_id=True)
+        return self.target
+
+    def save_state(self):
+        """Save the current drawable state for later Restore-style animations."""
+        self._saved_state = self.copy(new_id=True)
+        return self._saved_state
+
+    def get_saved_state(self):
+        """Return a copy of the last saved state if available."""
+        saved_state = getattr(self, "_saved_state", None)
+        if saved_state is None:
+            return None
+        return saved_state.copy(new_id=True)
 
 
 class TransformedDrawable(Drawable):
@@ -245,3 +270,14 @@ class EmptyDrawable(Drawable):
 
     def draw(self) -> OpsSet:
         return OpsSet(initial_set=[])
+
+
+class FrozenDrawable(Drawable):
+    """A drawable backed by a precomputed opsset snapshot."""
+
+    def __init__(self, opsset: OpsSet, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._opsset = OpsSet(initial_set=opsset.opsset)
+
+    def draw(self) -> OpsSet:
+        return OpsSet(initial_set=self._opsset.opsset)

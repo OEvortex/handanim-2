@@ -370,6 +370,34 @@ class OpsSet:
             msg = "other value is not an opsset"
             raise TypeError(msg)
 
+    def clone(self) -> "OpsSet":
+        """Return a shallow structural copy of the opsset."""
+        return OpsSet(initial_set=self.opsset)
+
+    def transform_points(self, point_transform) -> None:
+        """Apply a pointwise transformation to supported point-bearing ops."""
+
+        def _normalize_point(point):
+            new_point = point_transform((float(point[0]), float(point[1])))
+            return (float(new_point[0]), float(new_point[1]))
+
+        new_ops = []
+        for ops in self.opsset:
+            if isinstance(ops.data, list):
+                new_data = [_normalize_point(point) for point in ops.data]
+                new_ops.append(Ops(ops.type, new_data, ops.partial, ops.meta))
+            elif isinstance(ops.data, dict) and isinstance(ops.data.get("points"), list):
+                new_data = dict(ops.data)
+                new_data["points"] = [_normalize_point(point) for point in ops.data.get("points", [])]
+                new_ops.append(Ops(ops.type, new_data, ops.partial, ops.meta))
+            elif isinstance(ops.data, dict) and "center" in ops.data:
+                new_data = dict(ops.data)
+                new_data["center"] = _normalize_point(ops.data.get("center", (0, 0)))
+                new_ops.append(Ops(ops.type, new_data, ops.partial, ops.meta))
+            else:
+                new_ops.append(ops)
+        self.opsset = new_ops
+
     def get_bbox(self) -> tuple[float, float, float, float]:
         """
         Calculate the bounding box that encompasses all points in the operations set.

@@ -282,7 +282,7 @@ def _interpolate_point_along_arc(
 class TransformAnimation(AnimationEvent):
     def __init__(
         self,
-        target_drawable,
+        target_drawable=None,
         start_time: float = 0.0,
         duration: float = 0.0,
         easing_fun=None,
