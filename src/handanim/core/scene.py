@@ -1,10 +1,14 @@
-import os
+from collections.abc import Generator
+from contextlib import contextmanager
+from pathlib import Path
+import tempfile
 
 import cairo
 import imageio.v2 as imageio
 import numpy as np
 from tqdm import tqdm
 
+from .audio import AudioTrack, VoiceoverTracker, attach_audio_to_video
 from .animation import AnimationEvent, AnimationEventType, CompositeAnimationEvent
 from .draw_ops import OpsSet
 from .drawable import Drawable, DrawableCache, DrawableGroup, EmptyDrawable, FrozenDrawable
@@ -43,6 +47,8 @@ class Scene:
         self.drawable_cache = DrawableCache()
         self.events: list[tuple[AnimationEvent, str]] = []
         self.object_timelines: dict[str, list[float]] = {}
+        self.audio_tracks: list[AudioTrack] = []
+        self.timeline_cursor = 0.0
         self.drawable_groups: dict[str, DrawableGroup] = {}  # stores drawable groups present in the scene
         self.drawablegroup_frame_cache: dict[str, OpsSet] = (
             {}
@@ -91,6 +97,74 @@ class Scene:
             self.viewport.world_yrange[0],
             self.viewport.world_yrange[1],
         )
+
+    def set_timeline_cursor(self, scene_time: float) -> None:
+        self.timeline_cursor = max(float(scene_time), 0.0)
+
+    def advance_timeline(self, duration: float) -> float:
+        self.timeline_cursor = max(self.timeline_cursor + float(duration), 0.0)
+        return self.timeline_cursor
+
+    def add_audio(
+        self,
+        path: str,
+        start_time: float | None = None,
+        volume: float = 1.0,
+        clip_start: float = 0.0,
+        clip_end: float | None = None,
+    ) -> AudioTrack:
+        resolved_start_time = self.timeline_cursor if start_time is None else float(start_time)
+        track = AudioTrack(
+            path=path,
+            start_time=resolved_start_time,
+            volume=volume,
+            clip_start=clip_start,
+            clip_end=clip_end,
+        )
+        self.audio_tracks.append(track)
+        self.timeline_cursor = max(self.timeline_cursor, track.end_time)
+        return track
+
+    def add_voiceover(
+        self,
+        path: str,
+        text: str | None = None,
+        start_time: float | None = None,
+        volume: float = 1.0,
+        clip_start: float = 0.0,
+        clip_end: float | None = None,
+    ) -> VoiceoverTracker:
+        track = self.add_audio(
+            path=path,
+            start_time=start_time,
+            volume=volume,
+            clip_start=clip_start,
+            clip_end=clip_end,
+        )
+        return VoiceoverTracker(track, text=text)
+
+    @contextmanager
+    def voiceover(
+        self,
+        path: str,
+        text: str | None = None,
+        start_time: float | None = None,
+        volume: float = 1.0,
+        clip_start: float = 0.0,
+        clip_end: float | None = None,
+    ) -> Generator[VoiceoverTracker, None, None]:
+        tracker = self.add_voiceover(
+            path=path,
+            text=text,
+            start_time=start_time,
+            volume=volume,
+            clip_start=clip_start,
+            clip_end=clip_end,
+        )
+        try:
+            yield tracker
+        finally:
+            self.timeline_cursor = max(self.timeline_cursor, tracker.end_time)
 
     def add(
         self,
@@ -315,6 +389,12 @@ class Scene:
         key_frames.sort()
         return key_frames, drawable_events_mapping
 
+    def _infer_default_length(self) -> float:
+        event_end_times = [event.end_time for event, _drawable_id in self.events]
+        audio_end_times = [track.end_time for track in self.audio_tracks]
+        candidates = event_end_times + audio_end_times
+        return max(candidates) if candidates else 1.0 / self.fps
+
     def get_object_event_and_progress(
         self, object_id: str, t: int, drawable_events_mapping: dict[str, list[AnimationEvent]]
     ) -> list[tuple[AnimationEvent, float]]:
@@ -463,7 +543,9 @@ class Scene:
         """
         key_frames, drawable_events_mapping = self.find_key_frames()
         if max_length is None:
-            max_length = np.ceil(key_frames[-1])
+            max_length = self._infer_default_length()
+        if not key_frames:
+            key_frames = [0.0, max_length]
         else:
             key_frames.append(max_length)
         key_frame_indices = np.round(np.array(key_frames) * self.fps).astype(int).tolist()
@@ -562,35 +644,63 @@ class Scene:
             max_length (Optional[float], optional): Maximum duration of the animation. Defaults to None.
         """
         # calculate the events
-        opsset_list = self.create_event_timeline(max_length)
-        output_file_ext = os.path.basename(output_path).split(os.path.extsep)[-1]
+        resolved_max_length = (
+            self._infer_default_length() if max_length is None else float(max_length)
+        )
+        opsset_list = self.create_event_timeline(resolved_max_length)
+        output_file_ext = Path(output_path).suffix.lower().lstrip(".")
+        if output_file_ext.lower() == "gif" and self.audio_tracks:
+            msg = "Audio tracks are not supported when rendering GIF output"
+            raise ValueError(msg)
+
+        render_target = output_path
+        temp_output_path: Path | None = None
+        if output_file_ext.lower() != "gif" and self.audio_tracks:
+            suffix = Path(output_path).suffix or ".mp4"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+                temp_output_path = Path(temp_file.name)
+            render_target = str(temp_output_path)
+
         if output_file_ext.lower() == "gif":
             tqdm_desc = "Rendering GIF..."
             frame_duration_ms = 1000 / self.fps  # duration per frame in milliseconds
-            write_obj = imageio.get_writer(output_path, mode="I", duration=frame_duration_ms)
+            write_obj = imageio.get_writer(render_target, mode="I", duration=frame_duration_ms)
         else:
             tqdm_desc = "Rendering video..."
-            write_obj = imageio.get_writer(output_path, fps=self.fps, codec="libx264")
+            write_obj = imageio.get_writer(render_target, fps=self.fps, codec="libx264")
 
-        with write_obj as writer:
-            for frame_index, frame_ops in enumerate(tqdm(opsset_list, desc=tqdm_desc)):
-                surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
-                ctx = cairo.Context(surface)  # create cairo context
+        try:
+            with write_obj as writer:
+                for frame_index, frame_ops in enumerate(tqdm(opsset_list, desc=tqdm_desc)):
+                    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
+                    ctx = cairo.Context(surface)  # create cairo context
 
-                # optional background
-                if self.background_color is not None:
-                    ctx.set_source_rgb(*self.background_color)
-                ctx.paint()
+                    # optional background
+                    if self.background_color is not None:
+                        ctx.set_source_rgb(*self.background_color)
+                    ctx.paint()
 
-                self.viewport.apply_to_context(ctx)
-                frame_ops.render(
-                    ctx,
-                    render_context={
-                        "scene_time": frame_index / self.fps,
-                        "frame_index": frame_index,
-                        "fps": self.fps,
-                    },
-                )  # applies the operations to cairo context
+                    self.viewport.apply_to_context(ctx)
+                    frame_ops.render(
+                        ctx,
+                        render_context={
+                            "scene_time": frame_index / self.fps,
+                            "frame_index": frame_index,
+                            "fps": self.fps,
+                        },
+                    )  # applies the operations to cairo context
 
-                frame_np = cairo_surface_to_numpy(surface)
-                writer.append_data(frame_np)
+                    frame_np = cairo_surface_to_numpy(surface)
+                    writer.append_data(frame_np)
+
+            if temp_output_path is not None:
+                attach_audio_to_video(
+                    video_path=str(temp_output_path),
+                    output_path=output_path,
+                    audio_tracks=self.audio_tracks,
+                    duration=resolved_max_length,
+                    fps=self.fps,
+                )
+        finally:
+            if temp_output_path is not None and temp_output_path.exists():
+                temp_output_path.unlink()

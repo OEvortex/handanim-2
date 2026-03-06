@@ -337,7 +337,8 @@ class ThreeDScene(Scene):
         for animation in self.camera_animations:
             if animation.duration is not None:
                 camera_end_times.append(animation.start_time + animation.duration)
-        candidates = event_end_times + camera_end_times
+        audio_end_times = [track.end_time for track in self.audio_tracks]
+        candidates = event_end_times + camera_end_times + audio_end_times
         return max(candidates) if candidates else 1.0 / self.fps
 
     def _extend_with_depth_sorted_chunks(
