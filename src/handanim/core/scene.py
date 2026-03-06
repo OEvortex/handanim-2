@@ -133,7 +133,7 @@ class Scene:
 
         resolve_target_drawable = getattr(event, "resolve_target_drawable", None)
         if callable(resolve_target_drawable) and getattr(event, "target_drawable", None) is None:
-            event.target_drawable = resolve_target_drawable(drawable=drawable, scene=self)
+            setattr(event, "target_drawable", resolve_target_drawable(drawable=drawable, scene=self))
 
         if isinstance(drawable, DrawableGroup):
             target_drawable = getattr(event, "target_drawable", None)

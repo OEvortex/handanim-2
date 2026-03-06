@@ -77,21 +77,79 @@ class ReplacementTransform(ReplacementTransformAnimation):
 
 
 class ClockwiseTransform(Transform):
-    def __init__(self, target_drawable=None, *args, **kwargs) -> None:
-        kwargs.setdefault("path_arc", -math.pi)
-        super().__init__(target_drawable=target_drawable, *args, **kwargs)
+    def __init__(
+        self,
+        target_drawable=None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
+        super().__init__(
+            target_drawable=target_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=-math.pi,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
 
 class CounterclockwiseTransform(Transform):
-    def __init__(self, target_drawable=None, *args, **kwargs) -> None:
-        kwargs.setdefault("path_arc", math.pi)
-        super().__init__(target_drawable=target_drawable, *args, **kwargs)
+    def __init__(
+        self,
+        target_drawable=None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
+        super().__init__(
+            target_drawable=target_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=math.pi,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
 
 class FadeTransform(ReplacementTransform):
-    def __init__(self, target_drawable=None, *args, **kwargs) -> None:
-        kwargs.setdefault("matching_strategy", "smart")
-        super().__init__(target_drawable=target_drawable, *args, **kwargs)
+    def __init__(
+        self,
+        target_drawable=None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        path_arc: float = 0.0,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
+        super().__init__(
+            target_drawable=target_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=path_arc,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
 
 class FadeTransformPieces(FadeTransform):
@@ -99,18 +157,61 @@ class FadeTransformPieces(FadeTransform):
 
 
 class _LazyTargetTransform(Transform):
-    def __init__(self, source_drawable: Drawable | None = None, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        source_drawable: Drawable | None = None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        path_arc: float = 0.0,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
         self.source_drawable = source_drawable
-        super().__init__(target_drawable=None, *args, **kwargs)
+        super().__init__(
+            target_drawable=None,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=path_arc,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
     def _snapshot_source(self, drawable: Drawable, scene) -> FrozenDrawable:
         return scene.snapshot_drawable_at_time(drawable, self.start_time)
 
 
 class ApplyFunction(_LazyTargetTransform):
-    def __init__(self, function, source_drawable: Drawable | None = None, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        function,
+        source_drawable: Drawable | None = None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        path_arc: float = 0.0,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
         self.function = function
-        super().__init__(source_drawable=source_drawable, *args, **kwargs)
+        super().__init__(
+            source_drawable=source_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=path_arc,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
     def resolve_target_drawable(self, drawable: Drawable, scene):
         source_snapshot = self._snapshot_source(drawable, scene)
@@ -163,9 +264,31 @@ class ApplyMethod(ApplyFunction):
 
 
 class ApplyPointwiseFunction(_LazyTargetTransform):
-    def __init__(self, function, source_drawable: Drawable | None = None, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        function,
+        source_drawable: Drawable | None = None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        path_arc: float = 0.0,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
         self.function = function
-        super().__init__(source_drawable=source_drawable, *args, **kwargs)
+        super().__init__(
+            source_drawable=source_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=path_arc,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
     def resolve_target_drawable(self, drawable: Drawable, scene):
         source_snapshot = self._snapshot_source(drawable, scene)
@@ -175,23 +298,91 @@ class ApplyPointwiseFunction(_LazyTargetTransform):
 
 
 class ApplyComplexFunction(ApplyPointwiseFunction):
-    def __init__(self, function, source_drawable: Drawable | None = None, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        function,
+        source_drawable: Drawable | None = None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        path_arc: float = 0.0,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
         def _complex_to_point(point: tuple[float, float]) -> tuple[float, float]:
             complex_result = function(complex(point[0], point[1]))
             return float(np.real(complex_result)), float(np.imag(complex_result))
 
-        super().__init__(_complex_to_point, source_drawable=source_drawable, *args, **kwargs)
+        super().__init__(
+            _complex_to_point,
+            source_drawable=source_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=path_arc,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
 
 class ApplyMatrix(ApplyPointwiseFunction):
-    def __init__(self, matrix, source_drawable: Drawable | None = None, *args, **kwargs) -> None:
-        super().__init__(_make_matrix_point_function(matrix), source_drawable=source_drawable, *args, **kwargs)
+    def __init__(
+        self,
+        matrix,
+        source_drawable: Drawable | None = None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        path_arc: float = 0.0,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
+        super().__init__(
+            _make_matrix_point_function(matrix),
+            source_drawable=source_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=path_arc,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
 
 class ApplyPointwiseFunctionToCenter(_LazyTargetTransform):
-    def __init__(self, function, source_drawable: Drawable | None = None, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        function,
+        source_drawable: Drawable | None = None,
+        start_time: float = 0.0,
+        duration: float = 0.0,
+        easing_fun=None,
+        data: dict | None = None,
+        path_arc: float = 0.0,
+        sample_points_per_curve: int = 16,
+        min_path_points: int = 8,
+        matching_strategy: str = "smart",
+    ) -> None:
         self.function = function
-        super().__init__(source_drawable=source_drawable, *args, **kwargs)
+        super().__init__(
+            source_drawable=source_drawable,
+            start_time=start_time,
+            duration=duration,
+            easing_fun=easing_fun,
+            data=data,
+            path_arc=path_arc,
+            sample_points_per_curve=sample_points_per_curve,
+            min_path_points=min_path_points,
+            matching_strategy=matching_strategy,
+        )
 
     def resolve_target_drawable(self, drawable: Drawable, scene):
         source_snapshot = self._snapshot_source(drawable, scene)
