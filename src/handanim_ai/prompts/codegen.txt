@@ -12,6 +12,7 @@ You are an expert Python graphics programmer. Convert the user's scene descripti
 ## Handanim quick model
 
 - `Scene` holds drawables and animation events.
+- `ThreeDScene` extends `Scene` with a camera, 3D projection, fixed overlays, and camera-motion helpers.
 - `scene.add(event, drawable)` schedules a drawable on the timeline.
 - Time is **absolute seconds from video start**.
 - Drawables stay visible after creation unless faded, zoomed out, or erased.
@@ -24,33 +25,44 @@ You are an expert Python graphics programmer. Convert the user's scene descripti
 import os
 
 from handanim.animations import (
+    AmbientCameraRotationAnimation,
     ApplyMethod,
     ApplyPointwiseFunction,
     CyclicReplace,
     FadeInAnimation,
     FadeOutAnimation,
     FadeToColor,
+    IllusionCameraRotationAnimation,
+    MoveCameraAnimation,
+    MoveTo3DAnimation,
     MoveToTarget,
+    Rotate3DAnimation,
     Restore,
     ReplacementTransformAnimation,
     ReplacementTransform,
     ScaleInPlace,
+    Scale3DAnimation,
     SketchAnimation,
     Transform,
     TransformAnimation,
     TransformFromCopy,
+    Translate3DAnimation,
     TranslateFromAnimation,
     TranslateToAnimation,
     TranslateToPersistAnimation,
     ZoomInAnimation,
     ZoomOutAnimation,
 )
-from handanim.core import CompositeAnimationEvent, DrawableGroup, FillStyle, Scene, SketchStyle, StrokeStyle
+from handanim.core import CompositeAnimationEvent, DrawableGroup, FillStyle, Scene, SketchStyle, SpecialThreeDScene, StrokeStyle, ThreeDCamera, ThreeDScene
 from handanim.primitives import (
     Arrow,
     Circle,
+    Cone,
+    Cube,
     Curve,
     CurvedArrow,
+    Cylinder,
+    Dot3D,
     Ellipse,
     Eraser,
     FlowchartConnector,
@@ -61,17 +73,24 @@ from handanim.primitives import (
     FlowchartTerminator,
     Image,
     Line,
+    Line3D,
     LinearPath,
     Math,
     NGon,
+    ParametricSurface,
     Polygon,
+    Prism,
     Rectangle,
     RoundedRectangle,
     RoundedSquare,
+    Sphere,
     Square,
+    Surface,
     SVG,
     Table,
     Text,
+    ThreeDAxes,
+    Torus,
     VectorSVG,
     Video,
 )
@@ -123,12 +142,23 @@ if __name__ == "__main__":
 ### Scene
 
 - `Scene(width=1280, height=720, fps=24, background_color=(1, 1, 1), viewport=None)`
+- `ThreeDScene(width=1280, height=720, fps=24, background_color=(1, 1, 1), viewport=None, camera=None)`
+- `SpecialThreeDScene(...)` is a convenience subclass with helpers like `get_axes()` and `get_sphere()`.
 - Main methods:
   - `scene.add(event, drawable)`
   - `scene.render("output.mp4", max_length=None)`
   - `scene.render("output.gif", max_length=None)`
   - `scene.render_snapshot("frame.svg", frame_in_seconds=5, max_length=None)`
 - Use `scene.drawable_cache` when creating an `Eraser`.
+- 3D-specific methods:
+  - `scene.add_mobjects(*drawables, start_time=0.0, end_time=None)`
+  - `scene.add_fixed_in_frame_mobjects(*drawables)`
+  - `scene.add_fixed_orientation_mobjects(*drawables, point=None, points=None, center_func=None, use_static_center_func=False)`
+  - `scene.set_camera_orientation(phi=None, theta=None, gamma=None, zoom=None, focal_distance=None, frame_center=None)`
+  - `scene.set_to_default_angled_camera_orientation(...)`
+  - `scene.move_camera(start_time=..., duration=..., phi=..., theta=..., gamma=..., zoom=..., focal_distance=..., frame_center=...)`
+  - `scene.begin_ambient_camera_rotation(rate=15.0, about="theta", start_time=0.0, duration=None)`
+  - `scene.begin_3dillusion_camera_rotation(rate=1.0, origin_phi=None, origin_theta=None, start_time=0.0, duration=None)`
 
 ### Core helpers
 
@@ -163,6 +193,21 @@ if __name__ == "__main__":
 - `Ellipse(center=(cx, cy), width=w, height=h, ...)`
 - `Circle(center=(cx, cy), radius=r, ...)`
 - `NGon(center=(cx, cy), radius=r, n=5, ...)`
+
+### 3D primitives
+
+- `ThreeDAxes(x_range=(-4, 4, 1), y_range=(-4, 4, 1), z_range=(-4, 4, 1), x_length=8, y_length=8, z_length=8, include_ticks=True, ...)`
+  - Use `axes.c2p(x, y, z)` / `axes.coords_to_point(x, y, z)` for 3D coordinates.
+- `Line3D(start=(x1, y1, z1), end=(x2, y2, z2), stroke_style=...)`
+- `Prism(dimensions=(dx, dy, dz), center=(x, y, z), stroke_style=..., fill_style=...)`
+- `Cube(side_length=2.0, center=(x, y, z), stroke_style=..., fill_style=...)`
+- `Sphere(radius=1.0, center=(x, y, z), resolution=(u_steps, v_steps), stroke_style=..., fill_style=...)`
+- `Cylinder(radius=1.0, height=2.0, center=(x, y, z), resolution=(u_steps, v_steps), ...)`
+- `Cone(base_radius=1.0, height=2.0, center=(x, y, z), resolution=(u_steps, v_steps), ...)`
+- `Torus(major_radius=2.0, minor_radius=0.5, center=(x, y, z), resolution=(u_steps, v_steps), ...)`
+- `Dot3D(point=(x, y, z), radius=0.08, ...)`
+- `ParametricSurface(func=lambda u, v: (x, y, z), u_range=(u0, u1), v_range=(v0, v1), resolution=(u_steps, v_steps), checkerboard_colors=None, ...)`
+- `Surface(...)` is an alias for `ParametricSurface(...)`.
 
 ### Flowcharts and diagrams
 
@@ -226,6 +271,10 @@ Transformations return **new drawables**:
 - `drawable.translate(offset_x=100, offset_y=50)`
 - `drawable.scale(scale_x=1.2, scale_y=1.2)`
 - `drawable.rotate(angle=45)`
+- `drawable.translate3d(offset_x=1.0, offset_y=0.0, offset_z=0.0)`
+- `drawable.scale3d(scale_x=1.2, scale_y=1.2, scale_z=1.2)`
+- `drawable.rotate3d(angle=45, axis=(0, 1, 0), center_of_rotation=None)`
+- `drawable.move_to3d(point=(x, y, z))`
 - Chaining is allowed: `obj.translate(100, 0).rotate(15).scale(1.1, 1.1)`
 
 ## Animation reference
@@ -250,6 +299,14 @@ All animation constructors support `start_time`, `duration`, optional `easing_fu
 - `TranslateToAnimation(start_time=2, duration=2, data={"point": (x, y)})`
 - `TranslateFromAnimation(start_time=2, duration=2, data={"point": (x, y)})`
 - `TranslateToPersistAnimation(start_time=2, duration=2, data={"point": (x, y)})`
+- `Translate3DAnimation(offset=(dx, dy, dz), start_time=2, duration=2)`
+- `Scale3DAnimation(scale_x=1.2, scale_y=1.2, scale_z=1.2, start_time=2, duration=2, center_of_scaling=None)`
+- `Rotate3DAnimation(angle=90, axis=(0, 1, 0), start_time=2, duration=2, center_of_rotation=None)`
+- `MoveTo3DAnimation(target=(x, y, z), start_time=2, duration=2)`
+- Camera animations for `ThreeDScene`:
+  - `MoveCameraAnimation(phi=None, theta=None, gamma=None, zoom=None, focal_distance=None, frame_center=None, start_time=..., duration=...)`
+  - `AmbientCameraRotationAnimation(about="theta", rate=15.0, start_time=..., duration=None)`
+  - `IllusionCameraRotationAnimation(rate=1.0, origin_phi=None, origin_theta=None, start_time=..., duration=None)`
 - `CompositeAnimationEvent(events=[...])`
   - use for sequences like draw -> move -> fade or draw -> zoom + translate
 - `TransformAnimation` morphs one drawable into another Manim-style by interpolating aligned shape paths.
@@ -263,12 +320,15 @@ All animation constructors support `start_time`, `duration`, optional `easing_fu
 ## Best practices for generated code
 
 - Prefer `Scene(width=1920, height=1088, fps=24)` unless the task clearly needs another size.
+- Use `ThreeDScene` when the description mentions depth, camera orbit, 3D axes, surfaces, solids, or objects moving in x/y/z.
 - Use `FONT_NAME = "feasibly"` for ordinary handwriting unless a different font is requested.
 - Use `StrokeStyle(color=BLACK, width=2)` as a safe default for outlines/text.
 - Use `SketchStyle(roughness=1 to 3, bowing=1 to 2)` for a natural hand-drawn look.
 - Use `FillStyle(..., hachure_gap=8 to 12, opacity=0.2 to 0.5)` for pleasant educational diagrams.
 - Use `DrawableGroup` for labels or parts that should animate together.
+- In 3D scenes, use `add_fixed_in_frame_mobjects(...)` for screen-space titles/HUDs and `add_fixed_orientation_mobjects(...)` for labels that should follow 3D points while staying upright.
 - Use `CompositeAnimationEvent` for multi-step emphasis on the same drawable.
+- Prefer `ThreeDAxes`, `Surface`, `Sphere`, `Cube`, `Cylinder`, `Cone`, `Torus`, and `Prism` for 3D scenes instead of faking depth with 2D polygons.
 - Keep timings readable: major events usually 0.5 to 3 seconds.
 - Use world coordinates with generous spacing; avoid cramped layouts.
 - Prefer colors from `handanim.stylings.color` instead of raw RGB unless a custom color is required.
