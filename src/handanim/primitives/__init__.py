@@ -12,7 +12,7 @@ from .flowchart import (
 )
 from .lines import Line, LinearPath
 from .media import Image, Video
-from .math import Math
+from .math import Math, MathTex
 from .polygons import NGon, Polygon, Rectangle, RoundedRectangle, RoundedSquare, Square
 from .svg import SVG
 from .table import Table
@@ -38,6 +38,7 @@ __all__ = [
     "Line",
     "LinearPath",
     "Math",
+    "MathTex",
     "NGon",
     "Polygon",
     "ParametricSurface",
