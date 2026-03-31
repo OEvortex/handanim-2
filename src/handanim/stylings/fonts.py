@@ -1,6 +1,7 @@
 from pathlib import Path
 
 FONT_PATHS = {
+    # Original fonts
     "feasibly": "FeasiblySingleLine-z8D90.ttf",
     "headstay": "HeadstayRegular.ttf",
     "backstay": "BackstaySingleLine-rgOw8.ttf",
@@ -8,6 +9,36 @@ FONT_PATHS = {
     "permanent_marker": "PermanentMarker-Regular.ttf",
     "notosans_math": "NotoSansMath-Regular.ttf",
     "handanimtype1": str(Path("custom") / "handanimtype1.json"),
+    "cabin_sketch": "CabinSketch-Regular.ttf",
+    # Hand-drawn / Sketch
+    "patrick_hand": "PatrickHand-Regular.ttf",
+    "indie_flower": "IndieFlower.ttf",
+    "architects_daughter": "ArchitectsDaughter-Regular.ttf",
+    "coming_soon": "ComingSoon-Regular.ttf",
+    "gloria_hallelujah": "GloriaHallelujah-Regular.ttf",
+    "shadows_into_light": "ShadowsIntoLight-Regular.ttf",
+    "reenie_beanie": "ReenieBeanie-Regular.ttf",
+    "kalam": "Kalam-Regular.ttf",
+    "handlee": "Handlee-Regular.ttf",
+    "short_stack": "ShortStack-Regular.ttf",
+    "neucha": "Neucha-Regular.ttf",
+    "marck_script": "MarckScript-Regular.ttf",
+    "covered_by_your_grace": "CoveredByYourGrace-Regular.ttf",
+    # Marker / Chalk
+    "rock_salt": "RockSalt-Regular.ttf",
+    "balsamiq_sans": "BalsamiqSans-Regular.ttf",
+    "fredericka_the_great": "FrederickatheGreat-Regular.ttf",
+    "cabin_sketch": "CabinSketch-Regular.ttf",
+    "amatic_sc": "AmaticSC-Regular.ttf",
+    # Math / Technical
+    "fira_code": "FiraCode-Regular.ttf",
+    "space_mono": "SpaceMono-Regular.ttf",
+    # Script / Calligraphy
+    "dancing_script": "DancingScript-Regular.ttf",
+    "pacifico": "Pacifico-Regular.ttf",
+    "great_vibes": "GreatVibes-Regular.ttf",
+    "sacramento": "Sacramento-Regular.ttf",
+    "satisfy": "Satisfy-Regular.ttf",
 }
 
 PACKAGE_FONT_ROOT = Path(__file__).resolve().parents[1] / "fonts"

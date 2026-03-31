@@ -1,12 +1,17 @@
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
 import tempfile
+from typing import TYPE_CHECKING
 
 import cairo
 import imageio.v2 as imageio
 import numpy as np
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from .animation import AnimationEvent
+    from .drawable import Drawable
 
 from .audio import AudioTrack, VoiceoverTracker, attach_audio_to_video
 from .animation import AnimationEvent, AnimationEventType, CompositeAnimationEvent
@@ -203,8 +208,9 @@ class Scene:
 
         expand_for_scene = getattr(event, "expand_for_scene", None)
         if callable(expand_for_scene):
-            expanded_events = expand_for_scene(scene=self, drawable=drawable)
-            if expanded_events is not None:
+            expanded_result = expand_for_scene(scene=self, drawable=drawable)
+            if expanded_result is not None:
+                expanded_events: Iterable[tuple[AnimationEvent, Drawable]] = expanded_result  # type: ignore[assignment]
                 for expanded_event, expanded_drawable in expanded_events:
                     self.add(expanded_event, expanded_drawable)
                 return
@@ -248,9 +254,9 @@ class Scene:
                 element_pairs = pair_drawables(
                     drawable.elements, target_drawable.elements, self.drawable_cache
                 )
-                for source_elem, target_elem in element_pairs:
-                    actual_source = source_elem
-                    actual_target = target_elem
+                for source_elem, target_elem in element_pairs:  # type: ignore[assignment]
+                    actual_source: Drawable | None = source_elem
+                    actual_target: Drawable | None = target_elem
                     if actual_source is None:
                         actual_source = EmptyDrawable()
                         self.add(
@@ -259,7 +265,7 @@ class Scene:
                         )
                     if actual_target is None:
                         actual_target = EmptyDrawable()
-                    self.add(clone_for_target(actual_target), actual_source)
+                    self.add(clone_for_target(actual_target), actual_source)  # type: ignore[arg-type]
                 return
 
             # drawable group are usually a syntactic sugar for applying the event to its elements
@@ -744,7 +750,7 @@ class Scene:
                     )  # applies the operations to cairo context
 
                     frame_np = cairo_surface_to_numpy(surface)
-                    writer.append_data(frame_np.copy())
+                    writer.append_data(frame_np.copy())  # type: ignore[attr-defined]  # type: ignore[attr-defined]
 
             if temp_output_path is not None:
                 attach_audio_to_video(

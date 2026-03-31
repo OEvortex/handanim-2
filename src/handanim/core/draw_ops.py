@@ -365,7 +365,7 @@ def _shade_color(
         return None
     normal_unit = _normalize_vector(normal)
     if np.linalg.norm(normal_unit) <= 1e-9:
-        return tuple(base_color)
+        return (float(base_color[0]), float(base_color[1]), float(base_color[2]))
     light_direction = _normalize_vector(
         np.array(light_source, dtype=float) - np.array(face_center, dtype=float)
     )
@@ -500,16 +500,10 @@ class OpsSet:
         opsset (List[Ops]): A list of drawing operations to be performed.
     """
 
-    def __init__(self, initial_set: list[dict | Ops] | None = None) -> None:
+    def __init__(self, initial_set: list[Ops] | None = None) -> None:
         if initial_set is None:
             initial_set = []
-        converted_set: list[Ops] = []
-        for ops in initial_set:
-            if isinstance(ops, dict):
-                converted_set.append(Ops(**ops))
-            else:
-                converted_set.append(ops)
-        self.opsset = converted_set
+        self.opsset: list[Ops] = initial_set
 
     def __repr__(self) -> str:
         if len(self.opsset) <= 10:
@@ -529,8 +523,8 @@ class OpsSet:
                 ops.meta = meta
             ops.meta.update(meta)  # merge the key and values
 
-    def filter_by_meta_query(self, meta_key: str, meta_value: Any):
-        new_opsset = []
+    def filter_by_meta_query(self, meta_key: str, meta_value: Any) -> "OpsSet":
+        new_opsset: list[Ops] = []
         for ops in self.opsset:
             if ops.meta is None:
                 continue
@@ -649,9 +643,12 @@ class OpsSet:
         for ops in self.opsset:
             if ops.type in [OpsType.CURVE_TO, OpsType.QUAD_CURVE_TO]:
                 p0 = current_point  # current point is the start of the curve
+                p1: tuple[float, float]
+                p2: tuple[float, float]
+                p3: tuple[float, float]
                 if ops.type == OpsType.CURVE_TO:
                     p1, p2, p3 = ops.data
-                elif ops.type == OpsType.QUAD_CURVE_TO:
+                else:  # QUAD_CURVE_TO
                     q1, q2 = ops.data
                     p1, p2, p3 = get_bezier_points_from_quadcurve(p0, q1, q2)
                 current_point = p3  # update current point to end of curve
@@ -1159,9 +1156,16 @@ class OpsSet:
                     p0 = ctx.get_current_point()
                     p1, p2, p3 = ops.data[0], ops.data[1], ops.data[2]
                     cp1, cp2, ep = slice_bezier(p0, p1, p2, p3, ops.partial)
-                    ctx.curve_to(*cp1, *cp2, *ep)
+                    ctx.curve_to(cp1[0], cp1[1], cp2[0], cp2[1], ep[0], ep[1])
                 else:
-                    ctx.curve_to(*ops.data[0], *ops.data[1], *ops.data[2])
+                    ctx.curve_to(
+                        ops.data[0][0],
+                        ops.data[0][1],
+                        ops.data[1][0],
+                        ops.data[1][1],
+                        ops.data[2][0],
+                        ops.data[2][1],
+                    )
             elif ops.type == OpsType.QUAD_CURVE_TO:
                 has_path = True
                 q1, q2 = ops.data[0], ops.data[1]
@@ -1169,9 +1173,9 @@ class OpsSet:
                 p1, p2, p3 = get_bezier_points_from_quadcurve(p0, q1, q2)
                 if ops.partial < 1.0:
                     cp1, cp2, ep = slice_bezier(p0, p1, p2, p3, ops.partial)
-                    ctx.curve_to(*cp1, *cp2, *ep)
+                    ctx.curve_to(cp1[0], cp1[1], cp2[0], cp2[1], ep[0], ep[1])
                 else:
-                    ctx.curve_to(*p1, *p2, *p3)
+                    ctx.curve_to(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1])
             elif ops.type == OpsType.CLOSE_PATH:
                 has_path = True
                 ctx.close_path()
