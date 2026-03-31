@@ -26,7 +26,7 @@ _VIDEO_META_CACHE: dict[str, dict[str, float | int | None]] = {}
 _VIDEO_FRAME_SURFACE_CACHE: OrderedDict[tuple[str, int], tuple[cairo.ImageSurface, np.ndarray]] = (
     OrderedDict()
 )
-_VIDEO_FRAME_CACHE_SIZE = 8
+_VIDEO_FRAME_CACHE_SIZE = 32
 
 
 def _normalize_media_path(media_path: str) -> str:
@@ -288,7 +288,9 @@ def _normalize_vector(vector: np.ndarray) -> np.ndarray:
     return np.asarray(vector, dtype=float) / norm
 
 
-def _rotation_matrix_3d(axis: tuple[float, float, float] | np.ndarray, angle_degrees: float) -> np.ndarray:
+def _rotation_matrix_3d(
+    axis: tuple[float, float, float] | np.ndarray, angle_degrees: float
+) -> np.ndarray:
     unit_axis = _normalize_vector(np.array(axis, dtype=float))
     if np.linalg.norm(unit_axis) <= 1e-9:
         return np.identity(3, dtype=float)
@@ -364,7 +366,9 @@ def _shade_color(
     normal_unit = _normalize_vector(normal)
     if np.linalg.norm(normal_unit) <= 1e-9:
         return tuple(base_color)
-    light_direction = _normalize_vector(np.array(light_source, dtype=float) - np.array(face_center, dtype=float))
+    light_direction = _normalize_vector(
+        np.array(light_source, dtype=float) - np.array(face_center, dtype=float)
+    )
     diffuse = max(float(np.dot(normal_unit, light_direction)), 0.0)
     brightness = (1.0 - shading_factor) + shading_factor * diffuse
     shaded = np.clip(np.array(base_color, dtype=float) * brightness, 0.0, 1.0)
@@ -406,7 +410,9 @@ def _clip_polygon_to_max_z(points: np.ndarray, max_z: float) -> np.ndarray:
     return np.array(clipped_points, dtype=float)
 
 
-def _clip_polyline_to_max_z(points: np.ndarray, max_z: float, closed: bool = False) -> list[np.ndarray]:
+def _clip_polyline_to_max_z(
+    points: np.ndarray, max_z: float, closed: bool = False
+) -> list[np.ndarray]:
     if len(points) < 2:
         return []
 
@@ -464,7 +470,9 @@ class Ops:
 
     SETUP_OPS_TYPES = [OpsType.SET_PEN, OpsType.MOVE_TO, OpsType.METADATA]
 
-    def __init__(self, type: OpsType, data: Any, partial: float = 1.0, meta: dict | None = None) -> None:
+    def __init__(
+        self, type: OpsType, data: Any, partial: float = 1.0, meta: dict | None = None
+    ) -> None:
         self.type = type
         self.data = data  # the data to use to perform draw operation
         self.partial = partial  # how much of the ops needs to be performed
@@ -586,7 +594,9 @@ class OpsSet:
                 new_ops.append(Ops(ops.type, new_data, ops.partial, ops.meta))
             elif isinstance(ops.data, dict) and isinstance(ops.data.get("points"), list):
                 new_data = dict(ops.data)
-                new_data["points"] = [_normalize_point(point) for point in ops.data.get("points", [])]
+                new_data["points"] = [
+                    _normalize_point(point) for point in ops.data.get("points", [])
+                ]
                 new_ops.append(Ops(ops.type, new_data, ops.partial, ops.meta))
             elif isinstance(ops.data, dict) and "center" in ops.data:
                 new_data = dict(ops.data)
@@ -658,8 +668,7 @@ class OpsSet:
                     points = [(float(point[0]), float(point[1])) for point in data]
                 elif isinstance(data, dict) and isinstance(data.get("points"), list):
                     data_points = [
-                        (float(point[0]), float(point[1]))
-                        for point in data.get("points", [])
+                        (float(point[0]), float(point[1])) for point in data.get("points", [])
                     ]
                     points = data_points
 
@@ -761,7 +770,9 @@ class OpsSet:
         if last_op is None:
             return (0, 0)
 
-        second_last_op = self.get_last_ops(int(last_index) + 1)[1] if last_index is not None else None
+        second_last_op = (
+            self.get_last_ops(int(last_index) + 1)[1] if last_index is not None else None
+        )
         if second_last_op is None:
             return last_op.data[0]
         if last_op.type == OpsType.MOVE_TO:
@@ -964,14 +975,17 @@ class OpsSet:
         center_array = np.array(center_of_rotation, dtype=float)
         rotation_matrix = _rotation_matrix_3d(axis=axis, angle_degrees=angle)
         self.transform_points_3d(
-            lambda point: center_array + rotation_matrix @ (np.array(point, dtype=float) - center_array)
+            lambda point: center_array
+            + rotation_matrix @ (np.array(point, dtype=float) - center_array)
         )
 
     def project_3d(self, camera: ThreeDCamera) -> "OpsSet":
         projected_ops = OpsSet(initial_set=[])
         depth_entries: list[tuple[float, OpsSet]] = []
         object_center_world = np.array(self.get_center_of_gravity_3d(), dtype=float)
-        object_center_camera = camera.transform_points_to_camera_space(np.array([object_center_world], dtype=float))[0]
+        object_center_camera = camera.transform_points_to_camera_space(
+            np.array([object_center_world], dtype=float)
+        )[0]
         near_plane_z = camera.focal_distance - camera.get_near_clip_epsilon()
 
         for ops in self.opsset:
@@ -1016,13 +1030,21 @@ class OpsSet:
                 clipped_camera_points[1] - clipped_camera_points[0],
                 clipped_camera_points[2] - clipped_camera_points[0],
             )
-            if float(np.dot(normal_camera, np.mean(clipped_camera_points, axis=0) - object_center_camera)) < 0:
+            if (
+                float(
+                    np.dot(
+                        normal_camera, np.mean(clipped_camera_points, axis=0) - object_center_camera
+                    )
+                )
+                < 0
+            ):
                 normal_camera = -normal_camera
             backface_cull = bool(ops.data.get("backface_cull", False))
             visibility_score = float(
                 np.dot(
                     normal_camera,
-                    np.array([0.0, 0.0, camera.focal_distance], dtype=float) - np.mean(clipped_camera_points, axis=0),
+                    np.array([0.0, 0.0, camera.focal_distance], dtype=float)
+                    - np.mean(clipped_camera_points, axis=0),
                 )
             )
             if backface_cull and visibility_score <= 1e-9:
@@ -1229,7 +1251,9 @@ class OpsSet:
         if not self.opsset:
             return
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".svg", delete=False, encoding="utf-8") as tmp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".svg", delete=False, encoding="utf-8"
+        ) as tmp_file:
             tmp_filename = tmp_file.name
 
         # Get bounding box to create a viewport that fits the content

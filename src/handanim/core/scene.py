@@ -39,23 +39,27 @@ class Scene:
         fps: int = 24,
         background_color: tuple[float, float, float] = (1, 1, 1),
         viewport: Viewport | None = None,
+        render_quality: str = "high",
     ) -> None:
         self.width = width
         self.height = height
         self.fps = fps
         self.background_color = background_color
+        self.render_quality = render_quality
         self.drawable_cache = DrawableCache()
         self.events: list[tuple[AnimationEvent, str]] = []
         self.object_timelines: dict[str, list[float]] = {}
         self.audio_tracks: list[AudioTrack] = []
         self.timeline_cursor = 0.0
-        self.drawable_groups: dict[str, DrawableGroup] = {}  # stores drawable groups present in the scene
-        self.drawablegroup_frame_cache: dict[str, OpsSet] = (
-            {}
-        )  # a temporary frame specific cache that resets for each frame
-        self.drawablegroup_transformed_frame_cache: dict[str, OpsSet] = (
-            {}
-        )  # temporary cache for group event.apply() results within a frame
+        self.drawable_groups: dict[
+            str, DrawableGroup
+        ] = {}  # stores drawable groups present in the scene
+        self.drawablegroup_frame_cache: dict[
+            str, OpsSet
+        ] = {}  # a temporary frame specific cache that resets for each frame
+        self.drawablegroup_transformed_frame_cache: dict[
+            str, OpsSet
+        ] = {}  # temporary cache for group event.apply() results within a frame
 
         if viewport is not None:
             self.viewport = viewport
@@ -207,7 +211,9 @@ class Scene:
 
         resolve_target_drawable = getattr(event, "resolve_target_drawable", None)
         if callable(resolve_target_drawable) and getattr(event, "target_drawable", None) is None:
-            setattr(event, "target_drawable", resolve_target_drawable(drawable=drawable, scene=self))
+            setattr(
+                event, "target_drawable", resolve_target_drawable(drawable=drawable, scene=self)
+            )
 
         if isinstance(drawable, DrawableGroup):
             target_drawable = getattr(event, "target_drawable", None)
@@ -215,8 +221,13 @@ class Scene:
                 if not isinstance(target_drawable, DrawableGroup):
                     msg = "TransformAnimation between DrawableGroup and non-group drawables is not supported"
                     raise NotImplementedError(msg)
-                if drawable.grouping_method != "parallel" or target_drawable.grouping_method != "parallel":
-                    msg = "TransformAnimation currently supports only parallel DrawableGroup morphing"
+                if (
+                    drawable.grouping_method != "parallel"
+                    or target_drawable.grouping_method != "parallel"
+                ):
+                    msg = (
+                        "TransformAnimation currently supports only parallel DrawableGroup morphing"
+                    )
                     raise NotImplementedError(msg)
 
                 pair_drawables = getattr(event, "pair_drawables", None)
@@ -242,7 +253,10 @@ class Scene:
                     actual_target = target_elem
                     if actual_source is None:
                         actual_source = EmptyDrawable()
-                        self.add(FadeInAnimation(start_time=event.start_time, duration=0.0), actual_source)
+                        self.add(
+                            FadeInAnimation(start_time=event.start_time, duration=0.0),
+                            actual_source,
+                        )
                     if actual_target is None:
                         actual_target = EmptyDrawable()
                     self.add(clone_for_target(actual_target), actual_source)
@@ -252,7 +266,9 @@ class Scene:
             if drawable.grouping_method == "series":
                 # Apply the event sequentially to each element in the group
                 segmented_events = event.subdivide(len(drawable.elements))
-                for sub_drawable, segment_event in zip(drawable.elements, segmented_events, strict=False):
+                for sub_drawable, segment_event in zip(
+                    drawable.elements, segmented_events, strict=False
+                ):
                     # recursively call add(), but with the duration modified appropriately
                     self.add(event=segment_event, drawable=sub_drawable)
                 return
@@ -261,7 +277,9 @@ class Scene:
                 # but group_memberships are useful to calculate the opsset on which events get applied.
                 if drawable.id not in self.drawable_groups:
                     self.drawable_groups[drawable.id] = drawable
-                event.data["apply_to_group"] = drawable.id  # add more context to the event with the group_id
+                event.data["apply_to_group"] = (
+                    drawable.id
+                )  # add more context to the event with the group_id
                 for elem in drawable.elements:
                     self.add(event, elem)
 
@@ -341,7 +359,9 @@ class Scene:
             return OpsSet(initial_set=[])
         _key_frames, drawable_events_mapping = self.find_key_frames()
         frame_index = int(round(scene_time * self.fps))
-        event_and_progress = self.get_object_event_and_progress(drawable_id, frame_index, drawable_events_mapping)
+        event_and_progress = self.get_object_event_and_progress(
+            drawable_id, frame_index, drawable_events_mapping
+        )
         self.drawablegroup_frame_cache = {}
         self.drawablegroup_transformed_frame_cache = {}
         return self.get_animated_opsset_at_time(
@@ -376,9 +396,9 @@ class Scene:
         """
         event_drawable_ids = sorted(self.events, key=lambda x: x[0].start_time)
         events = [event for event, _ in event_drawable_ids]
-        drawable_events_mapping: dict[str, list[AnimationEvent]] = (
-            {}
-        )  # track for each drawable, what all events are applied
+        drawable_events_mapping: dict[
+            str, list[AnimationEvent]
+        ] = {}  # track for each drawable, what all events are applied
         for event, drawable_id in event_drawable_ids:
             if drawable_id not in drawable_events_mapping:
                 drawable_events_mapping[drawable_id] = [event]
@@ -416,7 +436,10 @@ class Scene:
         return event_and_progress
 
     def _is_object_dynamic_at_time(
-        self, object_id: str, scene_time: float, drawable_events_mapping: dict[str, list[AnimationEvent]]
+        self,
+        object_id: str,
+        scene_time: float,
+        drawable_events_mapping: dict[str, list[AnimationEvent]],
     ) -> bool:
         for event in drawable_events_mapping.get(object_id, []):
             if event.start_time <= scene_time < event.end_time:
@@ -438,7 +461,9 @@ class Scene:
                 dynamic_objects.append(object_id)
                 continue
 
-            event_and_progress = self.get_object_event_and_progress(object_id, t, drawable_events_mapping)
+            event_and_progress = self.get_object_event_and_progress(
+                object_id, t, drawable_events_mapping
+            )
             static_frame_opsset.extend(
                 self.get_animated_opsset_at_time(
                     drawable_id=object_id,
@@ -462,14 +487,18 @@ class Scene:
             return self.drawable_cache.get_drawable_opsset(drawable_id)
         if event_and_progress[-1][1] == 1:
             if self.drawable_cache.exists_in_cache(drawable_id, event_and_progress[-1][0].id):
-                return self.drawable_cache.get_drawable_opsset(drawable_id, event_and_progress[-1][0].id)
+                return self.drawable_cache.get_drawable_opsset(
+                    drawable_id, event_and_progress[-1][0].id
+                )
 
         if len(event_and_progress) > 1:
             opsset = self.get_animated_opsset_at_time(
                 drawable_id, t, event_and_progress[:-1], drawable_events_mapping
             )  # everything except the last event
         else:
-            opsset = self.drawable_cache.get_drawable_opsset(drawable_id)  # get the initial draw opsset
+            opsset = self.drawable_cache.get_drawable_opsset(
+                drawable_id
+            )  # get the initial draw opsset
 
         # now we need to apply the last transformation only
         event, progress = event_and_progress[-1]
@@ -490,7 +519,9 @@ class Scene:
                 for elem in group.elements:
                     # for each element of the group, we need to figure out its animated opsset at time before the current event
                     filtered_elem_events = []
-                    elem_event_and_progress = self.get_object_event_and_progress(elem.id, t, drawable_events_mapping)
+                    elem_event_and_progress = self.get_object_event_and_progress(
+                        elem.id, t, drawable_events_mapping
+                    )
                     for elem_event, elem_progress in elem_event_and_progress:
                         if elem_event.id == event.id:
                             break
@@ -565,10 +596,12 @@ class Scene:
                 current_active_objects = self.get_active_objects(t / self.fps)
                 self.drawablegroup_frame_cache = {}
                 self.drawablegroup_transformed_frame_cache = {}
-                current_static_frame_opsset, current_dynamic_objects = self._build_static_frame_opsset(
-                    current_active_objects,
-                    t,
-                    drawable_events_mapping,
+                current_static_frame_opsset, current_dynamic_objects = (
+                    self._build_static_frame_opsset(
+                        current_active_objects,
+                        t,
+                        drawable_events_mapping,
+                    )
                 )
 
             # for each of these active objects, calculate what all events need to apply upto which progress
@@ -576,7 +609,9 @@ class Scene:
             self.drawablegroup_frame_cache = {}  # reset this cache for each frame
             self.drawablegroup_transformed_frame_cache = {}
             for object_id in current_dynamic_objects:
-                event_and_progress = self.get_object_event_and_progress(object_id, t, drawable_events_mapping)
+                event_and_progress = self.get_object_event_and_progress(
+                    object_id, t, drawable_events_mapping
+                )
 
                 # now we have all the events, so get the animated opsset
                 animated_opsset = self.get_animated_opsset_at_time(
@@ -667,12 +702,30 @@ class Scene:
             write_obj = imageio.get_writer(render_target, mode="I", duration=frame_duration_ms)
         else:
             tqdm_desc = "Rendering video..."
-            write_obj = imageio.get_writer(render_target, fps=self.fps, codec="libx264")
+            ffmpeg_params = [
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "animation",
+            ]
+            if self.render_quality == "fast":
+                ffmpeg_params.extend(["-crf", "28"])
+            elif self.render_quality == "medium":
+                ffmpeg_params.extend(["-crf", "23"])
+            else:  # high
+                ffmpeg_params.extend(["-crf", "18"])
+            write_obj = imageio.get_writer(
+                render_target,
+                fps=self.fps,
+                codec="libx264",
+                macro_block_size=1,
+                ffmpeg_params=ffmpeg_params,
+            )
 
         try:
             with write_obj as writer:
+                surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
                 for frame_index, frame_ops in enumerate(tqdm(opsset_list, desc=tqdm_desc)):
-                    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
                     ctx = cairo.Context(surface)  # create cairo context
 
                     # optional background
@@ -691,7 +744,7 @@ class Scene:
                     )  # applies the operations to cairo context
 
                     frame_np = cairo_surface_to_numpy(surface)
-                    writer.append_data(frame_np)
+                    writer.append_data(frame_np.copy())
 
             if temp_output_path is not None:
                 attach_audio_to_video(

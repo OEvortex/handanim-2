@@ -1,3 +1,4 @@
+from functools import lru_cache
 
 import numpy as np
 from fontTools.pens.basePen import BasePen
@@ -5,6 +6,7 @@ from fontTools.ttLib import TTFont
 
 from handanim.core.draw_ops import Ops, OpsSet, OpsType
 from handanim.core.drawable import Drawable
+from handanim.core.styles import StrokeStyle
 from handanim.stylings.fonts import get_font_path, list_fonts
 
 
@@ -83,6 +85,13 @@ class Text(Drawable):
         rect_padding = float(kwargs.pop("rect_padding", 0.0))
         align = kwargs.pop("align", "center")
         line_spacing = float(kwargs.pop("line_spacing", 1.25))
+        color = kwargs.pop("color", None)
+        weight = kwargs.pop("weight", None)
+        if color is not None:
+            stroke_kwargs = {"color": color}
+            if weight is not None:
+                stroke_kwargs["width"] = 2.5 if weight == "bold" else 1.0
+            kwargs["stroke_style"] = StrokeStyle(**stroke_kwargs)
         super().__init__(*args, **kwargs)
         self.text = text
         self.position = position
@@ -93,6 +102,19 @@ class Text(Drawable):
         self.rect_padding = rect_padding
         self.align = align
         self.line_spacing = line_spacing
+        self._fixed_font_choice: str | None = None
+        self._fixed_font_path: str | None = None
+
+        if self.font_name is not None:
+            self._fixed_font_choice = self.font_name
+            self._fixed_font_path = get_font_path(self.font_name)
+        elif self.sketch_style.disable_font_mixture:
+            font_list = list_fonts()
+            if not font_list:
+                msg = "No fonts are available for text rendering"
+                raise ValueError(msg)
+            self._fixed_font_choice = font_list[0]
+            self._fixed_font_path = get_font_path(font_list[0])
 
         if self.rect_box is not None:
             if len(self.rect_box) != 4:
@@ -182,9 +204,7 @@ class Text(Drawable):
             line_opsset.extend(glyph_opsset)
 
             offset_x += glyph_width + glyph_scale * 5
-            cursor_y += np.random.uniform(
-                -self.sketch_style.roughness, self.sketch_style.roughness
-            )
+            cursor_y += np.random.uniform(-self.sketch_style.roughness, self.sketch_style.roughness)
         return line_opsset
 
     def _align_lines(self, line_opssets: list[OpsSet]) -> None:
@@ -208,12 +228,21 @@ class Text(Drawable):
                 line_center = (min_x + max_x) / 2
                 line_opsset.translate(block_center - line_center, 0)
 
+    @staticmethod
+    @lru_cache(maxsize=None)
+    def _load_font_resources(font_path: str) -> tuple[TTFont, object, dict[int, str], int, float]:
+        font = TTFont(font_path)
+        glyph_set = font.getGlyphSet()
+        cmap = font.getBestCmap()
+        units_per_em = font["head"].unitsPerEm
+        return font, glyph_set, cmap, units_per_em, glyph_set["space"].width if "space" in glyph_set else float(font["hhea"].advanceWidthMax) * 0.5
+
     def get_random_font_choice(self) -> tuple[str, str]:
         """
         Chooses a random font from the available fonts
         """
-        if self.font_name is not None:
-            return (self.font_name, get_font_path(self.font_name))
+        if self._fixed_font_choice is not None and self._fixed_font_path is not None:
+            return (self._fixed_font_choice, self._fixed_font_path)
 
         font_list = list_fonts()
         if self.sketch_style.disable_font_mixture:
@@ -227,17 +256,12 @@ class Text(Drawable):
         Gives the glyph operations as well the width of the char for offsetting purpose
         """
         _font_choice, font_path = self.get_random_font_choice()
-        font = TTFont(font_path)
-        glyph_set = font.getGlyphSet()
-        cmap = font.getBestCmap()
+        _font, glyph_set, cmap, units_per_em, _space_units = self._load_font_resources(font_path)
         glyph_name = cmap.get(ord(char))
         if glyph_name is None:
             return OpsSet(initial_set=[]), 0.0
 
-        units_per_em = font["head"].unitsPerEm  # usually 1000
-        scale = (
-            self.scale_factor * self.font_size / units_per_em
-        )  # normalize to desired size
+        scale = self.scale_factor * self.font_size / units_per_em  # normalize to desired size
         glyph = glyph_set[glyph_name]
         pen = CustomPen(glyph_set, scale=scale)
         glyph.draw(pen)
@@ -250,15 +274,10 @@ class Text(Drawable):
         Gives the width of the space, or an average width
         """
         _font_choice, font_path = self.get_random_font_choice()
-        font = TTFont(font_path)
-        glyph_set = font.getGlyphSet()
-        units_per_em = font["head"].unitsPerEm
+        _font, _glyph_set, _cmap, units_per_em, space_units = self._load_font_resources(font_path)
         scale = self.scale_factor * self.font_size / units_per_em
 
-        avg_char_width = font["hhea"].advanceWidthMax * scale * 0.5
-        space_width = (
-            glyph_set["space"].width * scale if "space" in glyph_set else avg_char_width
-        )
+        space_width = space_units * scale
         return space_width, scale
 
     def draw(self) -> OpsSet:
