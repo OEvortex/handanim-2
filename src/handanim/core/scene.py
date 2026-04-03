@@ -433,11 +433,14 @@ class Scene:
                 event_and_progress.append((event, 1.0))  # add completed event
             elif event.start_time <= t / self.fps:
                 # event has started, but not completed yet
-                progress = np.clip(
-                    (t / self.fps - event.start_time) / event.duration,
-                    0,
-                    1,
-                )
+                if event.duration <= 0:
+                    progress = 1.0
+                else:
+                    progress = np.clip(
+                        (t / self.fps - event.start_time) / event.duration,
+                        0,
+                        1,
+                    )
                 event_and_progress.append((event, progress))
         return event_and_progress
 
@@ -750,7 +753,7 @@ class Scene:
                     )  # applies the operations to cairo context
 
                     frame_np = cairo_surface_to_numpy(surface)
-                    writer.append_data(frame_np.copy())  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+                    writer.append_data(frame_np)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
 
             if temp_output_path is not None:
                 attach_audio_to_video(

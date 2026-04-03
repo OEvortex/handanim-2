@@ -56,15 +56,22 @@ class SketchAnimation(AnimationEvent):
                 fill_mode = True
         total_ops_count = draw_ops_count + fill_ops_count  # total count of drawing ops
 
+        if total_ops_count <= 0:
+            return OpsSet(initial_set=[])
+
+        effective_duration = self.duration - self.wait_before_fill
+        if effective_duration <= 0:
+            return OpsSet(initial_set=list(base_ops), has_3d_ops=opsset.has_3d_ops())
+
         # calculate per ops how much seconds is assigned
-        per_op_time = (self.duration - self.wait_before_fill) / total_ops_count
+        per_op_time = effective_duration / total_ops_count
 
         # calculate the drawing and filling times
         draw_end_time = per_op_time * draw_ops_count
         fill_start_time = draw_end_time + self.wait_before_fill
 
         # based on progress, find out the total number of ops to be drawn
-        if progress * self.duration <= draw_end_time:
+        if draw_end_time > 0 and progress * self.duration <= draw_end_time:
             # drawing is not completed yet
             draw_progress = progress * self.duration / draw_end_time
             n_active = int(draw_progress * draw_ops_count)
@@ -73,8 +80,12 @@ class SketchAnimation(AnimationEvent):
             n_active = draw_ops_count
         else:
             # filling is in progress
-            fill_progress = (progress * self.duration - fill_start_time) / (self.duration - fill_start_time)
-            n_active = draw_ops_count + int(fill_progress * fill_ops_count)
+            fill_duration = self.duration - fill_start_time
+            if fill_duration <= 0:
+                n_active = draw_ops_count + fill_ops_count
+            else:
+                fill_progress = (progress * self.duration - fill_start_time) / fill_duration
+                n_active = draw_ops_count + int(fill_progress * fill_ops_count)
 
         # create a new opsset with the partial ops
         counter = 0
@@ -120,7 +131,12 @@ class SketchAnimation(AnimationEvent):
             sketching_opssets = self.get_partial_sketch(opsset, progress)
             new_opsset.extend(sketching_opssets)
             # now we can optionally add a glowing dot for the sketching operation
-            if self.data.get("glowing_dot") and progress < 1:
+            if (
+                self.data.get("glowing_dot")
+                and self.duration > 0
+                and progress < 1
+                and len(sketching_opssets.opsset) > 0
+            ):
                 # the glowing dot should disappear at the end of the sketch
                 glow_dot_data = self.data.get("glowing_dot")
                 if not isinstance(glow_dot_data, dict):
@@ -140,5 +156,4 @@ class SketchAnimation(AnimationEvent):
         else:
             # progress is 0, so nothing should be drawn
             pass
-        return new_opsset
         return new_opsset

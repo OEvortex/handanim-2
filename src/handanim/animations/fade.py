@@ -32,7 +32,7 @@ class FadeInAnimation(AnimationEvent):
                 current_ops_list.append(Ops(type=op.type, data=modifed_data, partial=op.partial, meta=op.meta))
             else:
                 current_ops_list.append(op)
-        return OpsSet(initial_set=current_ops_list)
+        return OpsSet(initial_set=current_ops_list, has_3d_ops=opsset.has_3d_ops())
 
     def apply(self, opsset: OpsSet, progress: float):
         return self._opsset_apply(opsset, progress)

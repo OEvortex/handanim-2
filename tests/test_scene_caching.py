@@ -1,6 +1,6 @@
 from handanim.animations import FadeInAnimation
 from handanim.core.animation import AnimationEvent, AnimationEventType
-from handanim.core.draw_ops import OpsSet
+from handanim.core.draw_ops import Ops, OpsSet, OpsType
 from handanim.core.drawable import DrawableGroup
 from handanim.core.scene import Scene
 from handanim.primitives import Line
@@ -56,3 +56,25 @@ def test_static_visible_object_opsset_is_reused_between_keyframes() -> None:
 
     assert len(timeline) == 31
     assert scene.animated_opsset_call_counts[line.id] == 12
+
+
+def test_opsset_tracks_3d_ops_without_recomputing_each_frame() -> None:
+    opsset = OpsSet()
+    assert opsset.has_3d_ops() is False
+
+    opsset.add(Ops(OpsType.MOVE_TO, data=[(0.0, 0.0)]))
+    assert opsset.has_3d_ops() is False
+
+    opsset.add(
+        Ops(
+            OpsType.POLYGON_3D,
+            data={"points": [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]},
+        )
+    )
+    assert opsset.has_3d_ops() is True
+
+    cloned = opsset.clone()
+    assert cloned.has_3d_ops() is True
+
+    cloned.translate_3d(1.0, 2.0, 3.0)
+    assert cloned.has_3d_ops() is True

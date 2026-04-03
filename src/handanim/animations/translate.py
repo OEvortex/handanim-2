@@ -26,7 +26,7 @@ class TranslateToAnimation(AnimationEvent):
         )
 
     def _opsset_apply(self, opsset: OpsSet, progress: float):
-        new_opsset = OpsSet(initial_set=opsset.opsset)
+        new_opsset = OpsSet(initial_set=list(opsset.opsset), has_3d_ops=opsset.has_3d_ops())
         # calculate the center of gravity for the opsset
         gravity_x, gravity_y = opsset.get_center_of_gravity()
         point_x, point_y = self.data.get("point", (0, 0))
@@ -74,7 +74,7 @@ class TranslateToPersistAnimation(AnimationEvent):
         dx = (point_x - gravity_x) * progress
         dy = (point_y - gravity_y) * progress
 
-        new_opsset = OpsSet(initial_set=opsset.opsset)
+        new_opsset = OpsSet(initial_set=list(opsset.opsset), has_3d_ops=opsset.has_3d_ops())
         new_opsset.translate(dx, dy)
 
         # persist new position

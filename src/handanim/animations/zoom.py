@@ -21,7 +21,7 @@ class ZoomInAnimation(AnimationEvent):
         super().__init__(AnimationEventType.CREATION, start_time, duration, easing_fun, data)
 
     def _apply_opsset(self, opsset: OpsSet, progress: float):
-        new_opsset = OpsSet(initial_set=opsset.opsset)
+        new_opsset = OpsSet(initial_set=list(opsset.opsset), has_3d_ops=opsset.has_3d_ops())
         new_opsset.scale(progress)
         return new_opsset
 

@@ -69,6 +69,8 @@ scene.add(SketchAnimation(start_time = 0, end_time = 5), drawable = triangle)
 scene.render("triangle_anim.mp4", fps = 30)
 ```
 
+For faster renders, lower the output resolution or FPS and use `Scene(..., render_quality="fast")`.
+
 ## 📦 Installation using pip
 
 If you prefer using `pip` instead of Poetry, you can install the main dependencies directly from the `requirements.txt` file. This method works well for lightweight setups or deployment environments.

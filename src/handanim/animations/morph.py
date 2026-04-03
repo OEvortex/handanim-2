@@ -31,7 +31,7 @@ class _DrawableMatchEntry:
 
 
 def _clone_opsset(opsset: OpsSet) -> OpsSet:
-    return OpsSet(initial_set=opsset.opsset)
+    return OpsSet(initial_set=list(opsset.opsset), has_3d_ops=opsset.has_3d_ops())
 
 
 def _style_from_pen_data(data: dict) -> _MorphStyle:

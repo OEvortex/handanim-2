@@ -486,6 +486,9 @@ class Ops:
         return f"Ops({self.type}, {json.dumps(rounded_data)}, {self.partial})"
 
 
+_OPS_3D_TYPES = frozenset({OpsType.POLYGON_3D, OpsType.POLYLINE_3D})
+
+
 class OpsSet:
     """
     Represents a collection of drawing operations with methods for manipulation and rendering.
@@ -500,10 +503,19 @@ class OpsSet:
         opsset (List[Ops]): A list of drawing operations to be performed.
     """
 
-    def __init__(self, initial_set: list[Ops] | None = None) -> None:
+    def __init__(
+        self,
+        initial_set: list[Ops] | None = None,
+        *,
+        has_3d_ops: bool | None = None,
+    ) -> None:
         if initial_set is None:
             initial_set = []
         self.opsset: list[Ops] = initial_set
+        if has_3d_ops is None:
+            self._has_3d_ops = any(op.type in _OPS_3D_TYPES for op in initial_set)
+        else:
+            self._has_3d_ops = bool(has_3d_ops)
 
     def __repr__(self) -> str:
         if len(self.opsset) <= 10:
@@ -525,29 +537,34 @@ class OpsSet:
 
     def filter_by_meta_query(self, meta_key: str, meta_value: Any) -> "OpsSet":
         new_opsset: list[Ops] = []
+        has_3d_ops = False
         for ops in self.opsset:
             if ops.meta is None:
                 continue
             if ops.meta.get(meta_key) == meta_value:
                 new_opsset.append(ops)
-        return OpsSet(new_opsset)
+                has_3d_ops = has_3d_ops or ops.type in _OPS_3D_TYPES
+        return OpsSet(new_opsset, has_3d_ops=has_3d_ops)
 
     def add(self, ops: Ops | dict) -> None:
         if isinstance(ops, dict):
             ops = Ops(**ops)
         self.opsset.append(ops)
+        if ops.type in _OPS_3D_TYPES:
+            self._has_3d_ops = True
 
     def extend(self, other_opsset: Any) -> None:
         if isinstance(other_opsset, OpsSet):
-            for op in other_opsset.opsset:
-                self.opsset.append(op)
+            self.opsset.extend(other_opsset.opsset)
+            if other_opsset._has_3d_ops:
+                self._has_3d_ops = True
         else:
             msg = "other value is not an opsset"
             raise TypeError(msg)
 
     def clone(self) -> "OpsSet":
         """Return a shallow structural copy of the opsset."""
-        return OpsSet(initial_set=self.opsset)
+        return OpsSet(initial_set=list(self.opsset), has_3d_ops=self._has_3d_ops)
 
     def get_meta_chunks(self, meta_key: str) -> list[tuple[Any | None, "OpsSet"]]:
         chunks: list[tuple[Any | None, OpsSet]] = []
@@ -572,7 +589,7 @@ class OpsSet:
         return chunks
 
     def has_3d_ops(self) -> bool:
-        return any(ops.type in {OpsType.POLYGON_3D, OpsType.POLYLINE_3D} for ops in self.opsset)
+        return self._has_3d_ops
 
     def transform_points(self, point_transform) -> None:
         """Apply a pointwise transformation to supported point-bearing ops."""
@@ -977,7 +994,7 @@ class OpsSet:
         )
 
     def project_3d(self, camera: ThreeDCamera) -> "OpsSet":
-        projected_ops = OpsSet(initial_set=[])
+        projected_ops = OpsSet(initial_set=[], has_3d_ops=False)
         depth_entries: list[tuple[float, OpsSet]] = []
         object_center_world = np.array(self.get_center_of_gravity_3d(), dtype=float)
         object_center_camera = camera.transform_points_to_camera_space(

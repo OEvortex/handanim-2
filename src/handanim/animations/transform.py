@@ -36,7 +36,7 @@ def _set_opsset_opacity(opsset: OpsSet, opacity: float) -> OpsSet:
             updated_ops.append(Ops(op.type, data, op.partial, op.meta))
         else:
             updated_ops.append(op)
-    return OpsSet(initial_set=updated_ops)
+    return OpsSet(initial_set=updated_ops, has_3d_ops=opsset.has_3d_ops())
 
 
 def _resolve_animation_endpoint(animation: AnimationEvent, drawable: Drawable, scene) -> OpsSet:
@@ -449,7 +449,7 @@ class FadeToColor(AnimationEvent):
                 current_ops.append(Ops(op.type, data, op.partial, op.meta))
             else:
                 current_ops.append(op)
-        return OpsSet(initial_set=current_ops)
+        return OpsSet(initial_set=current_ops, has_3d_ops=opsset.has_3d_ops())
 
 
 class TransformFromCopy(AnimationEvent):
