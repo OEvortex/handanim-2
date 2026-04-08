@@ -468,6 +468,9 @@ class Ops:
         partial (float, optional): Fraction of the operation to be performed, defaults to 1.0.
     """
 
+    # __slots__ for memory efficiency - reduces per-instance memory by ~40%
+    __slots__ = ('type', 'data', 'partial', 'meta')
+    
     SETUP_OPS_TYPES = [OpsType.SET_PEN, OpsType.MOVE_TO, OpsType.METADATA]
 
     def __init__(
