@@ -10,6 +10,27 @@ from handanim.core.styles import StrokeStyle
 from handanim.stylings.fonts import get_font_path, list_fonts
 
 
+@lru_cache(maxsize=8192)
+def _cached_glyph_ops(font_path: str, char: str, scale: float) -> tuple[tuple[Ops, ...], float]:
+    _font, glyph_set, cmap, units_per_em, _space_units = Text._load_font_resources(font_path)
+    glyph_name = cmap.get(ord(char))
+    if glyph_name is None:
+        return (), 0.0
+
+    glyph = glyph_set[glyph_name]
+    pen = CustomPen(glyph_set, scale=scale)
+    glyph.draw(pen)
+
+    width = glyph.width * scale
+    return tuple(pen.opsset.opsset), width
+
+
+@lru_cache(maxsize=256)
+def _cached_space_width(font_path: str, scale: float) -> float:
+    _font, _glyph_set, _cmap, _units_per_em, space_units = Text._load_font_resources(font_path)
+    return space_units * scale
+
+
 class CustomPen(BasePen):
     # overwrite some methods to capture the strokes
 
@@ -146,8 +167,15 @@ class Text(Drawable):
             anchor_x = box_x + box_width / 2
         return (anchor_x, box_y + box_height / 2)
 
-    def _position_opsset(self, opsset: OpsSet, anchor_position: tuple[float, float]) -> None:
-        min_x, min_y, max_x, max_y = opsset.get_bbox()
+    def _position_opsset(
+        self,
+        opsset: OpsSet,
+        anchor_position: tuple[float, float],
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> None:
+        if bbox is None:
+            bbox = opsset.get_bbox()
+        min_x, min_y, max_x, max_y = bbox
         if not np.isfinite([min_x, min_y, max_x, max_y]).all():
             return
 
@@ -161,7 +189,12 @@ class Text(Drawable):
 
         opsset.translate(anchor_position[0] - anchor_x, anchor_position[1] - center_y)
 
-    def _fit_to_rect_box(self, opsset: OpsSet, anchor_position: tuple[float, float]) -> None:
+    def _fit_to_rect_box(
+        self,
+        opsset: OpsSet,
+        anchor_position: tuple[float, float],
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> None:
         if self.rect_box is None:
             return
 
@@ -169,7 +202,9 @@ class Text(Drawable):
         available_width = max(box_width - 2 * self.rect_padding, 1e-6)
         available_height = max(box_height - 2 * self.rect_padding, 1e-6)
 
-        min_x, min_y, max_x, max_y = opsset.get_bbox()
+        if bbox is None:
+            bbox = opsset.get_bbox()
+        min_x, min_y, max_x, max_y = bbox
         if not np.isfinite([min_x, min_y, max_x, max_y]).all():
             return
 
@@ -189,7 +224,17 @@ class Text(Drawable):
     def _get_line_step(self) -> float:
         return self.font_size * self.scale_factor * self.line_spacing
 
-    def _render_line(self, line_text: str, offset_y: float) -> OpsSet:
+    def _get_glyph_strokes_for_font(
+        self, font_path: str, scale: float, char: str
+    ) -> tuple[OpsSet, float]:
+        glyph_ops, width = _cached_glyph_ops(font_path, char, scale)
+        return OpsSet(initial_set=list(glyph_ops)), width
+
+    def _render_line(
+        self,
+        line_text: str,
+        offset_y: float,
+    ) -> OpsSet:
         line_opsset = OpsSet(initial_set=[])
         offset_x = 0.0
         cursor_y = offset_y
@@ -204,7 +249,10 @@ class Text(Drawable):
             line_opsset.extend(glyph_opsset)
 
             offset_x += glyph_width + glyph_scale * 5
-            cursor_y += np.random.uniform(-self.sketch_style.roughness, self.sketch_style.roughness)
+            if self.sketch_style.roughness != 0:
+                cursor_y += np.random.uniform(
+                    -self.sketch_style.roughness, self.sketch_style.roughness
+                )
         return line_opsset
 
     def _align_lines(self, line_opssets: list[OpsSet]) -> None:
@@ -230,12 +278,18 @@ class Text(Drawable):
 
     @staticmethod
     @lru_cache(maxsize=None)
-    def _load_font_resources(font_path: str) -> tuple[TTFont, object, dict[int, str], int, float]:
+    def _load_font_resources(
+        font_path: str,
+    ) -> tuple[TTFont, object, dict[int, str] | None, int, float]:
         font = TTFont(font_path)
         glyph_set = font.getGlyphSet()
         cmap = font.getBestCmap()
-        units_per_em = font["head"].unitsPerEm
-        return font, glyph_set, cmap, units_per_em, glyph_set["space"].width if "space" in glyph_set else float(font["hhea"].advanceWidthMax) * 0.5
+        units_per_em = int(font["head"].unitsPerEm)
+        if "space" in glyph_set:
+            space_width = float(glyph_set["space"].width)
+        else:
+            space_width = float(font["hhea"].advanceWidthMax) * 0.5
+        return font, glyph_set, cmap, units_per_em, space_width
 
     def get_random_font_choice(self) -> tuple[str, str]:
         """
@@ -256,28 +310,19 @@ class Text(Drawable):
         Gives the glyph operations as well the width of the char for offsetting purpose
         """
         _font_choice, font_path = self.get_random_font_choice()
-        _font, glyph_set, cmap, units_per_em, _space_units = self._load_font_resources(font_path)
-        glyph_name = cmap.get(ord(char))
-        if glyph_name is None:
-            return OpsSet(initial_set=[]), 0.0
-
+        _font, _glyph_set, _cmap, units_per_em, _space_units = self._load_font_resources(font_path)
         scale = self.scale_factor * self.font_size / units_per_em  # normalize to desired size
-        glyph = glyph_set[glyph_name]
-        pen = CustomPen(glyph_set, scale=scale)
-        glyph.draw(pen)
-
-        width = glyph.width * scale
-        return pen.opsset, width
+        return self._get_glyph_strokes_for_font(font_path, scale, char)
 
     def get_glyph_space(self) -> tuple[float, float]:
         """
         Gives the width of the space, or an average width
         """
         _font_choice, font_path = self.get_random_font_choice()
-        _font, _glyph_set, _cmap, units_per_em, space_units = self._load_font_resources(font_path)
+        _font, _glyph_set, _cmap, units_per_em, _space_units = self._load_font_resources(font_path)
         scale = self.scale_factor * self.font_size / units_per_em
 
-        space_width = space_units * scale
+        space_width = _cached_space_width(font_path, scale)
         return space_width, scale
 
     def draw(self) -> OpsSet:
@@ -293,7 +338,10 @@ class Text(Drawable):
             )
         )
         line_opssets = [
-            self._render_line(line_text, index * self._get_line_step())
+            self._render_line(
+                line_text,
+                index * self._get_line_step(),
+            )
             for index, line_text in enumerate(self._get_lines())
         ]
         self._align_lines(line_opssets)
@@ -301,6 +349,7 @@ class Text(Drawable):
             opsset.extend(line_opsset)
 
         target_anchor = self._get_target_anchor()
-        self._position_opsset(opsset, target_anchor)
-        self._fit_to_rect_box(opsset, target_anchor)
+        bbox = opsset.get_bbox()
+        self._position_opsset(opsset, target_anchor, bbox=bbox)
+        self._fit_to_rect_box(opsset, target_anchor, bbox=bbox)
         return opsset

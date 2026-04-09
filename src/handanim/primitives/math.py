@@ -1,4 +1,5 @@
 import json
+from functools import lru_cache
 
 import numpy as np
 from fontTools.ttLib import TTFont
@@ -46,9 +47,88 @@ def _font_properties_from_name(font_name: str | None) -> FontProperties | None:
     return FontProperties(fname=font_path)
 
 
+@lru_cache(maxsize=1024)
+def _cached_mathtex_path(
+    tex_expression: str,
+    font_name: str | None,
+    font_size: int,
+    usetex: bool,
+) -> TextPath:
+    expression = _normalize_mathtex_expression(tex_expression)
+    return TextPath(
+        xy=(0.0, 0.0),
+        s=expression,
+        size=font_size,
+        prop=_font_properties_from_name(font_name),
+        usetex=usetex,
+    )
+
+
+@lru_cache(maxsize=4096)
+def _cached_standard_math_glyph_ops(
+    font_path: str,
+    unicode: int,
+    font_size: float,
+) -> tuple[tuple[Ops, ...], float, float]:
+    font = TTFont(font_path)
+    glyph_set = font.getGlyphSet()
+    cmap = font.getBestCmap()
+    if cmap is None:
+        return (), 1.0, 1.0
+
+    units_per_em = int(font["head"].unitsPerEm)
+    glyph_name = cmap.get(unicode)
+    if glyph_name is None:
+        return (), 1.0, 1.0
+
+    scale = font_size / units_per_em
+    glyph = glyph_set[glyph_name]
+    pen = CustomPen(glyph_set, scale=scale)
+    glyph.draw(pen)
+
+    dx, dy = pen.min_x, pen.min_y
+    pen.opsset.translate(-dx, -dy)
+
+    width = glyph.width * scale
+    height = pen.max_y - pen.min_y
+    return tuple(pen.opsset.opsset), height, width
+
+
+@lru_cache(maxsize=4096)
+def _cached_custom_math_glyph_ops(
+    font_path: str,
+    unicode: int,
+    font_size: float,
+) -> tuple[tuple[Ops, ...], float, float]:
+    with open(font_path) as f:
+        font_details = json.load(f)
+
+    glyphs = font_details.get("glyphs")
+    metadata = font_details.get("metadata")
+    if not isinstance(glyphs, dict) or not isinstance(metadata, dict):
+        return (), 1.0, 1.0
+
+    if str(unicode) not in glyphs:
+        return (), 1.0, 1.0
+
+    glyph_svg_paths = glyphs[str(unicode)]
+    svg = SVG(svg_paths=glyph_svg_paths)
+    svg_ops = svg.draw()
+    font_units_raw = metadata.get("font_size")
+    font_units = float(font_units_raw) if font_units_raw is not None else 1.0
+    font_scale = font_size / font_units
+    svg_ops.scale(font_scale)
+
+    min_x, min_y, max_x, max_y = svg.get_bbox()
+    width = (max_x - min_x) * font_scale
+    height = (max_y - min_y) * font_scale
+    svg_ops.translate(-min_x, -min_y)
+    return tuple(svg_ops.opsset), height, width
+
+
 def _matplotlib_path_to_opsset(path: MatplotlibPath) -> OpsSet:
     opsset = OpsSet(initial_set=[])
-    vertices = path.vertices
+    vertices = path.vertices.tolist()
     codes = path.codes
 
     if codes is None:
@@ -173,8 +253,15 @@ class MathTex(Drawable):
             anchor_x = box_x + box_width / 2
         return (anchor_x, box_y + box_height / 2)
 
-    def _position_opsset(self, opsset: OpsSet, anchor_position: tuple[float, float]) -> None:
-        min_x, min_y, max_x, max_y = opsset.get_bbox()
+    def _position_opsset(
+        self,
+        opsset: OpsSet,
+        anchor_position: tuple[float, float],
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> None:
+        if bbox is None:
+            bbox = opsset.get_bbox()
+        min_x, min_y, max_x, max_y = bbox
         if not np.isfinite([min_x, min_y, max_x, max_y]).all():
             return
 
@@ -188,7 +275,12 @@ class MathTex(Drawable):
 
         opsset.translate(anchor_position[0] - anchor_x, anchor_position[1] - center_y)
 
-    def _fit_to_rect_box(self, opsset: OpsSet, anchor_position: tuple[float, float]) -> None:
+    def _fit_to_rect_box(
+        self,
+        opsset: OpsSet,
+        anchor_position: tuple[float, float],
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> None:
         if self.rect_box is None:
             return
 
@@ -196,7 +288,9 @@ class MathTex(Drawable):
         available_width = max(box_width - 2 * self.rect_padding, 1e-6)
         available_height = max(box_height - 2 * self.rect_padding, 1e-6)
 
-        min_x, min_y, max_x, max_y = opsset.get_bbox()
+        if bbox is None:
+            bbox = opsset.get_bbox()
+        min_x, min_y, max_x, max_y = bbox
         if not np.isfinite([min_x, min_y, max_x, max_y]).all():
             return
 
@@ -211,15 +305,8 @@ class MathTex(Drawable):
             self._position_opsset(opsset, anchor_position)
 
     def _build_text_path(self) -> TextPath:
-        expression = _normalize_mathtex_expression(self.tex_expression)
         try:
-            return TextPath(
-                xy=(0.0, 0.0),
-                s=expression,
-                size=self.font_size,
-                prop=_font_properties_from_name(self.font_name),
-                usetex=self.usetex,
-            )
+            return _cached_mathtex_path(self.tex_expression, self.font_name, self.font_size, self.usetex)
         except Exception as exc:
             if self.usetex:
                 msg = (
@@ -237,8 +324,9 @@ class MathTex(Drawable):
         opsset.extend(path_opsset)
 
         target_anchor = self._get_target_anchor()
-        self._position_opsset(opsset, target_anchor)
-        self._fit_to_rect_box(opsset, target_anchor)
+        bbox = opsset.get_bbox()
+        self._position_opsset(opsset, target_anchor, bbox=bbox)
+        self._fit_to_rect_box(opsset, target_anchor, bbox=bbox)
 
         if self.stroke_style.stroke_pressure != StrokePressure.CONSTANT:
             opsset = apply_stroke_pressure(opsset, self.stroke_style.stroke_pressure)
@@ -279,10 +367,11 @@ class Math(Drawable):
         self.parser = MathTextParser("path")
         self.font_name = font_name
         self.font_details = {}
+        self.font_path = get_font_path(self.font_name)
         self.load_font()
 
     def load_font(self) -> None:
-        font_path = get_font_path(self.font_name)
+        font_path = self.font_path
         if font_path.endswith(".json"):
             # this is custom-made svg font
             with open(font_path) as f:
@@ -303,53 +392,22 @@ class Math(Drawable):
     def standard_glyph_opsset(
         self, unicode: int, font_size: int
     ) -> tuple[OpsSet, float, float]:
-        glyph_set = self.font_details.get("glyph_set")
-        cmap = self.font_details.get("cmap")
-        units_per_em_raw = self.font_details.get("units_per_em")
-        if glyph_set is None or cmap is None or units_per_em_raw is None:
-            return OpsSet(initial_set=[]), 1.0, 1.0
-
-        units_per_em = int(units_per_em_raw)
-        glyph_name = cmap.get(unicode)
-        if glyph_name is None:
-            return OpsSet(initial_set=[]), 1.0, 1.0
-
-        scale = font_size / units_per_em  # normalize to desired size
-        glyph = glyph_set[glyph_name]
-        pen = CustomPen(glyph_set, scale=scale)
-        glyph.draw(pen)
-
-        # now get the bounding box
-        dx, dy = pen.min_x, pen.min_y
-        pen.opsset.translate(-dx, -dy)  # so top-left is (0, 0)
-
-        width = glyph.width * scale
-        height = pen.max_y - pen.min_y
-        return pen.opsset, height, width
+        glyph_ops, height, width = _cached_standard_math_glyph_ops(
+            self.font_path,
+            unicode,
+            float(font_size),
+        )
+        return OpsSet(initial_set=list(glyph_ops)), height, width
 
     def custom_glyph_opsset(
         self, unicode: int, font_size: int
     ) -> tuple[OpsSet, float, float]:
-        glyphs = self.font_details.get("glyphs")
-        metadata = self.font_details.get("metadata")
-        assert glyphs is not None
-        assert metadata is not None
-
-        if str(unicode) not in glyphs:
-            return OpsSet(initial_set=[]), 1.0, 1.0
-        glyph_svg_paths = glyphs[str(unicode)]
-        svg = SVG(svg_paths=glyph_svg_paths)
-        svg_ops = svg.draw()
-        font_units_raw = metadata.get("font_size")
-        font_units = float(font_units_raw) if font_units_raw is not None else 1.0
-        font_scale = font_size / font_units
-        svg_ops.scale(font_scale)
-
-        min_x, min_y, max_x, max_y = svg.get_bbox()
-        width = (max_x - min_x) * font_scale
-        height = (max_y - min_y) * font_scale
-        svg_ops.translate(-min_x, -min_y)  # top-left corner must be at (0, 0)
-        return svg_ops, height, width
+        glyph_ops, height, width = _cached_custom_math_glyph_ops(
+            self.font_path,
+            unicode,
+            float(font_size),
+        )
+        return OpsSet(initial_set=list(glyph_ops)), height, width
 
     def get_glyph_opsset(
         self, unicode: int, font_size: int

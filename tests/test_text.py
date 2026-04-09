@@ -6,6 +6,7 @@ import pytest
 from handanim.stylings import fonts
 from handanim.core.styles import SketchStyle, StrokeStyle
 from handanim.primitives import Text
+import handanim.primitives.text as text_module
 
 
 def _styles() -> tuple[StrokeStyle, SketchStyle]:
@@ -146,6 +147,29 @@ def test_text_alignment_respects_rect_box_anchor() -> None:
     assert center_x == pytest.approx(rect_box[0] + rect_box[2] / 2, abs=2.0)
     assert right_max_x == pytest.approx(rect_box[0] + rect_box[2] - padding, abs=2.0)
     assert left_min_x < center_x < right_max_x
+
+
+def test_text_glyph_construction_is_cached_per_font_and_character() -> None:
+    text_module._cached_glyph_ops.cache_clear()
+    stroke_style, sketch_style = _styles()
+
+    text = Text(
+        text="aa",
+        position=(0, 0),
+        font_size=48,
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    )
+
+    first_ops, first_width = text.get_glyph_strokes("a")
+    second_ops, second_width = text.get_glyph_strokes("a")
+
+    cache_info = text_module._cached_glyph_ops.cache_info()
+    assert cache_info.misses == 1
+    assert cache_info.hits == 1
+    assert first_ops is not second_ops
+    assert first_width == pytest.approx(second_width)
+    assert first_ops.get_bbox() == pytest.approx(second_ops.get_bbox())
 
 
 @pytest.mark.parametrize(

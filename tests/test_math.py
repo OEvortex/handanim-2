@@ -2,6 +2,7 @@ import pytest
 
 from handanim.core.styles import SketchStyle, StrokeStyle
 from handanim.primitives import Math, MathTex
+import handanim.primitives.math as math_module
 
 
 def _styles() -> tuple[StrokeStyle, SketchStyle]:
@@ -56,6 +57,27 @@ def test_mathtex_supports_rect_box_alignment_and_autofit() -> None:
     assert max_x == pytest.approx(box_x + box_width - padding, abs=2.0)
 
 
+def test_mathtex_path_is_cached_for_repeated_expression_builds() -> None:
+    math_module._cached_mathtex_path.cache_clear()
+    stroke_style, sketch_style = _styles()
+
+    drawable = MathTex(
+        r"\frac{a}{b}+\sqrt{x}",
+        position=(240.0, 160.0),
+        font_size=72,
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    )
+
+    first_path = drawable._build_text_path()
+    second_path = drawable._build_text_path()
+
+    cache_info = math_module._cached_mathtex_path.cache_info()
+    assert cache_info.misses == 1
+    assert cache_info.hits == 1
+    assert first_path.vertices.shape == second_path.vertices.shape
+
+
 def test_math_legacy_primitive_still_renders_basic_formula() -> None:
     stroke_style, sketch_style = _styles()
     drawable = Math(
@@ -69,3 +91,27 @@ def test_math_legacy_primitive_still_renders_basic_formula() -> None:
     min_x, min_y, max_x, max_y = drawable.draw().get_bbox()
     assert max_x > min_x
     assert max_y > min_y
+
+
+def test_math_glyph_construction_is_cached_for_standard_fonts() -> None:
+    math_module._cached_standard_math_glyph_ops.cache_clear()
+    stroke_style, sketch_style = _styles()
+
+    drawable = Math(
+        tex_expression=r"$a^2$",
+        position=(100.0, 80.0),
+        font_size=48,
+        font_name="feasibly",
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    )
+
+    first_ops, first_height, first_width = drawable.standard_glyph_opsset(ord("a"), 48)
+    second_ops, second_height, second_width = drawable.standard_glyph_opsset(ord("a"), 48)
+
+    cache_info = math_module._cached_standard_math_glyph_ops.cache_info()
+    assert cache_info.misses == 1
+    assert cache_info.hits == 1
+    assert first_ops is not second_ops
+    assert first_height == pytest.approx(second_height)
+    assert first_width == pytest.approx(second_width)
