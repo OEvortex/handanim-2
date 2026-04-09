@@ -171,6 +171,7 @@ def attach_audio_to_video(
     audio_tracks: list[AudioTrack],
     duration: float,
     fps: int,
+    threads: int = 0,
 ) -> None:
     moviepy_audio_clips = []
     composite_audio = None
@@ -191,12 +192,16 @@ def attach_audio_to_video(
             final_clip = video_clip.with_audio(composite_audio)
         else:
             final_clip = video_clip.set_audio(composite_audio)
+        
+        # Build ffmpeg params for multithreading
+        ffmpeg_params = ["-threads", str(threads)] if threads > 0 else None
         final_clip.write_videofile(
             output_path,
             fps=fps,
             codec="libx264",
             audio_codec="aac",
             audio_fps=44_100,
+            ffmpeg_params=ffmpeg_params,
             logger=None,
         )
     finally:

@@ -719,7 +719,12 @@ class Scene:
             )
             surface.finish()
 
-    def render(self, output_path: str, max_length: float | None = None) -> None:
+    def render(
+        self,
+        output_path: str,
+        max_length: float | None = None,
+        threads: int = 0,
+    ) -> None:
         """
         Render the animation as a video file.
 
@@ -730,6 +735,7 @@ class Scene:
         Args:
             output_path (str): Path to save the output video file.
             max_length (Optional[float], optional): Maximum duration of the animation. Defaults to None.
+            threads (int, optional): Number of threads for ffmpeg encoding. Use 0 for all cores. Defaults to 0.
         """
         # calculate the events
         resolved_max_length = (
@@ -760,6 +766,8 @@ class Scene:
                 "ultrafast",
                 "-tune",
                 "animation",
+                "-threads",
+                str(threads),
             ]
             if self.render_quality == "fast":
                 ffmpeg_params.extend(["-crf", "28"])
@@ -806,6 +814,7 @@ class Scene:
                     audio_tracks=self.audio_tracks,
                     duration=resolved_max_length,
                     fps=self.fps,
+                    threads=threads,
                 )
         finally:
             if temp_output_path is not None and temp_output_path.exists():
