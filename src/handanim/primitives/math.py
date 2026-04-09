@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 
 import numpy as np
+import matplotlib as mpl
 from fontTools.ttLib import TTFont
 from matplotlib.font_manager import FontProperties
 from matplotlib.mathtext import MathTextParser
@@ -54,14 +55,26 @@ def _cached_mathtex_path(
     font_size: int,
     usetex: bool,
 ) -> TextPath:
+    import matplotlib as mpl
+    
     expression = _normalize_mathtex_expression(tex_expression)
-    return TextPath(
-        xy=(0.0, 0.0),
-        s=expression,
-        size=font_size,
-        prop=_font_properties_from_name(font_name),
-        usetex=usetex,
-    )
+    
+    # Configure preamble for amsmath support when using usetex
+    if usetex:
+        original_preamble = mpl.rcParams['text.latex.preamble']
+        mpl.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
+    
+    try:
+        return TextPath(
+            xy=(0.0, 0.0),
+            s=expression,
+            size=font_size,
+            prop=_font_properties_from_name(font_name),
+            usetex=usetex,
+        )
+    finally:
+        if usetex:
+            mpl.rcParams['text.latex.preamble'] = original_preamble
 
 
 @lru_cache(maxsize=4096)
@@ -203,6 +216,13 @@ class MathTex(Drawable):
         rect_box = kwargs.pop("rect_box", None)
         rect_padding = float(kwargs.pop("rect_padding", 0.0))
         align = kwargs.pop("align", "center")
+        
+        # Handle color parameter - convert to stroke_style if provided
+        color = kwargs.pop("color", None)
+        if color is not None and "stroke_style" not in kwargs:
+            from handanim.core.styles import StrokeStyle
+            kwargs["stroke_style"] = StrokeStyle(color=color)
+        
         super().__init__(**kwargs)
 
         if tex_strings and tex_expression is not None:
@@ -333,145 +353,5 @@ class MathTex(Drawable):
         return opsset
 
 
-class Math(Drawable):
-    """
-    A Drawable class for rendering mathematical expressions using TeX notation.
-
-    This class parses a TeX expression and renders individual glyphs using a specified font,
-    supporting custom positioning, scaling, and stroke styling.
-
-    Attributes:
-        tex_expression (str): The TeX mathematical expression to render
-        position (Tuple[float, float]): The starting position for rendering the expression
-        font_size (int, optional): The size of the font, defaults to 12
-        font_name (str): The name of the font to use for rendering, defaults to "feasibly"
-
-    Methods:
-        get_glyph_opsset: Extracts the operations set for a single unicode glyph
-        draw: Renders the entire mathematical expression as a set of drawing operations
-    """
-
-    def __init__(
-        self,
-        tex_expression: str,
-        position: tuple[float, float],
-        font_size: int = 12,
-        font_name: str = "handanimtype1",
-        *args,
-        **kwargs,
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        self.tex_expression = tex_expression
-        self.position = position
-        self.scale_factor = font_size / 10  # base size is 10
-        self.parser = MathTextParser("path")
-        self.font_name = font_name
-        self.font_details = {}
-        self.font_path = get_font_path(self.font_name)
-        self.load_font()
-
-    def load_font(self) -> None:
-        font_path = self.font_path
-        if font_path.endswith(".json"):
-            # this is custom-made svg font
-            with open(font_path) as f:
-                self.font_details = json.load(f)
-                self.font_details["type"] = "custom"
-        else:
-            font = TTFont(font_path)
-            glyph_set = font.getGlyphSet()
-            cmap = font.getBestCmap()
-            units_per_em = font["head"].unitsPerEm  # usually 1000
-            self.font_details = {
-                "type": "standard",
-                "glyph_set": glyph_set,
-                "cmap": cmap,
-                "units_per_em": units_per_em,
-            }
-
-    def standard_glyph_opsset(
-        self, unicode: int, font_size: int
-    ) -> tuple[OpsSet, float, float]:
-        glyph_ops, height, width = _cached_standard_math_glyph_ops(
-            self.font_path,
-            unicode,
-            float(font_size),
-        )
-        return OpsSet(initial_set=list(glyph_ops)), height, width
-
-    def custom_glyph_opsset(
-        self, unicode: int, font_size: int
-    ) -> tuple[OpsSet, float, float]:
-        glyph_ops, height, width = _cached_custom_math_glyph_ops(
-            self.font_path,
-            unicode,
-            float(font_size),
-        )
-        return OpsSet(initial_set=list(glyph_ops)), height, width
-
-    def get_glyph_opsset(
-        self, unicode: int, font_size: int
-    ) -> tuple[OpsSet, float, float]:
-        """
-        Returns the opset for a single glyph of a unicode number
-        """
-        if self.font_details["type"] == "custom":
-            # this is custom-made svg font
-            return self.custom_glyph_opsset(unicode, font_size)
-        return self.standard_glyph_opsset(unicode, font_size)
-
-    def draw(self) -> OpsSet:
-        opsset = OpsSet(initial_set=[])
-        opsset.add(_set_pen_op(self.stroke_style))
-
-        # parse and extract the glyphs from matplotlib parsing
-        parse_out = self.parser.parse(self.tex_expression)
-        glyphs = (
-            parse_out.glyphs
-        )  # list of tuple of (font, font_size, char, offset_x, offset_y)
-        boxes = parse_out.rects  # list of tuple of (x, y, width, height)
-
-        for glyph in glyphs:
-            # offset_x = postion of the glyph relative to start at 0.0
-            # offset_y = position of the glyph relative to the baseline
-            _font, font_size, unicode, offset_x, offset_y = glyph
-            glyph_opsset, glyph_height, _glyph_width = self.get_glyph_opsset(
-                unicode,
-                font_size=font_size
-                * self.scale_factor,  # scale the font size appropriately
-            )
-            draw_x = offset_x * self.scale_factor + self.position[0]
-            draw_y = (
-                self.position[1]
-                + (10 * self.scale_factor - glyph_height)
-                - offset_y * self.scale_factor
-            )  # this ensures the lower edge matches the baseline
-            glyph_opsset.translate(draw_x, draw_y)
-
-            # draw glyph
-            opsset.add(_set_pen_op(self.stroke_style))
-            opsset.extend(glyph_opsset)  # continue adding to the opset for each glyph
-
-        # finally draw the lines
-        current_stroke_width = self.stroke_style.width
-        for box in boxes:
-            x, y, width, height = box  # we will approximate by a thick line
-            self.stroke_style.width = height / 2 * self.scale_factor
-            draw_x, draw_y = (
-                self.position[0] + self.scale_factor * x,
-                self.position[1] + (10 - height / 2 - y) * self.scale_factor,
-            )
-
-            line = Line(
-                start=(draw_x, draw_y),
-                end=(draw_x + self.scale_factor * width, draw_y),
-                stroke_style=self.stroke_style,
-            )
-            opsset.extend(line.draw())
-        self.stroke_style.width = current_stroke_width
-
-        # for the character strokes, apply pen pressures
-        if self.stroke_style.stroke_pressure != StrokePressure.CONSTANT:
-            opsset = apply_stroke_pressure(opsset, self.stroke_style.stroke_pressure)
-
-        return opsset
+# Alias for backward compatibility - Math is now MathTex
+Math = MathTex
