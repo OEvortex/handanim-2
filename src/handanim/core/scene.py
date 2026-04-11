@@ -203,9 +203,29 @@ class Scene:
         if ffmpeg_path is None:
             return False
 
+        probe_path = ""
         try:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as probe_file:
+                probe_path = probe_file.name
+
             result = subprocess.run(
-                [ffmpeg_path, "-hide_banner", "-encoders"],
+                [
+                    ffmpeg_path,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=16x16:d=0.1",
+                    "-frames:v",
+                    "1",
+                    "-c:v",
+                    "h264_nvenc",
+                    "-pix_fmt",
+                    "yuv420p",
+                    probe_path,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -213,8 +233,13 @@ class Scene:
             )
         except (OSError, subprocess.TimeoutExpired):
             return False
+        finally:
+            try:
+                Path(probe_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
-        return result.returncode == 0 and "h264_nvenc" in result.stdout
+        return result.returncode == 0
 
     def _tqdm_bar(self, iterable, *, desc: str, total: int | None = None):
         """Return a modern tqdm iterator with a compact, responsive bar."""
