@@ -251,7 +251,7 @@ class Scene:
             colour="cyan",
             smoothing=0.15,
             mininterval=0.2,
-            bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+            bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt} frames/s]",
         )
 
     def _get_encoder_codec_and_params(self) -> tuple[str, list[str]]:
