@@ -266,9 +266,9 @@ class Scene:
             codec = "h264_nvenc"
             ffmpeg_params = [
                 "-preset",
-                "p7",  # Highest quality preset for NVENC (p1-p7, p7 is slowest/best)
+                "p1",  # Fastest NVENC preset
                 "-tune",
-                "hq",  # High quality tune
+                "ll",  # Low-latency / speed-oriented tuning
                 "-threads",
                 "0",  # Let encoder decide (GPU doesn't use CPU threads the same way)
             ]
@@ -298,6 +298,66 @@ class Scene:
                 ffmpeg_params.extend(["-crf", "18"])
 
         return codec, ffmpeg_params
+
+    def _iter_event_timeline(self, max_length: float | None = None):
+        """Yield frame OpsSet objects one at a time to avoid holding the full timeline in memory."""
+        key_frames, drawable_events_mapping = self.find_key_frames()
+        if max_length is None:
+            max_length = self._infer_default_length()
+        if not key_frames:
+            key_frames = [0.0, max_length]
+        else:
+            key_frames.append(max_length)
+        key_frame_indices = np.round(np.array(key_frames) * self.fps).astype(int).tolist()
+        key_frame_index_set = set(key_frame_indices)
+        current_active_objects: list[str] = []
+        current_dynamic_objects: list[str] = []
+        current_static_frame_opsset = OpsSet(initial_set=[])
+
+        # OPTIMIZATION: Clear caches once before the loop instead of per-frame
+        # Cache key: (drawable_id, event_idx, frame) -> OpsSet
+        self._animation_state_cache = {}
+
+        frame_count = int(np.round(max_length * self.fps))
+        for t in range(frame_count + 1):
+            # for each frame, update the current active objects if it is a keyframe
+            if t in key_frame_index_set:
+                current_active_objects = self.get_active_objects(t / self.fps)
+                # Only clear caches at keyframes, not every frame
+                self.drawablegroup_frame_cache = {}
+                self.drawablegroup_transformed_frame_cache = {}
+                self._animation_state_cache = {}  # Clear animation state cache at keyframes
+                self._event_progress_cache = {}  # Clear event progress cache at keyframes
+                self._frame_opsset_cache = {}  # Clear frame opsset cache at keyframes
+                current_static_frame_opsset, current_dynamic_objects = (
+                    self._build_static_frame_opsset(
+                        current_active_objects,
+                        t,
+                        drawable_events_mapping,
+                    )
+                )
+
+            if not current_dynamic_objects:
+                yield current_static_frame_opsset
+                continue
+
+            frame_opsset = current_static_frame_opsset.clone()
+
+            # for each of these active objects, calculate what all events need to apply upto which progress
+            for object_id in current_dynamic_objects:
+                event_and_progress = self.get_object_event_and_progress(
+                    object_id, t, drawable_events_mapping
+                )
+
+                # now we have all the events, so get the animated opsset
+                animated_opsset = self.get_animated_opsset_at_time(
+                    drawable_id=object_id,
+                    t=t,
+                    event_and_progress=event_and_progress,
+                    drawable_events_mapping=drawable_events_mapping,
+                )
+                frame_opsset.extend(animated_opsset)
+            yield frame_opsset
 
     def set_viewport_to_identity(self) -> None:
         """
@@ -826,72 +886,13 @@ class Scene:
         Returns:
             List[OpsSet]: A list of OpsSet operations for each frame in the animation.
         """
-        key_frames, drawable_events_mapping = self.find_key_frames()
-        if max_length is None:
-            max_length = self._infer_default_length()
-        if not key_frames:
-            key_frames = [0.0, max_length]
-        else:
-            key_frames.append(max_length)
-        key_frame_indices = np.round(np.array(key_frames) * self.fps).astype(int).tolist()
-        key_frame_index_set = set(key_frame_indices)
-        scene_opsset_list: list[OpsSet] = []
-        current_active_objects: list[str] = []
-        current_dynamic_objects: list[str] = []
-        current_static_frame_opsset = OpsSet(initial_set=[])
-
-        # start calculating with a progress bar
-        frame_count = int(np.round(max_length * self.fps))
-        
-        # OPTIMIZATION: Clear caches once before the loop instead of per-frame
-        # Cache key: (drawable_id, event_idx, frame) -> OpsSet
-        self._animation_state_cache = {}
-        
-        for t in self._tqdm_bar(
-            range(frame_count + 1),
-            desc="Calculating animation frames...",
-            total=frame_count + 1,
-        ):
-            # for each frame, update the current active objects if it is a keyframe
-            if t in key_frame_index_set:
-                current_active_objects = self.get_active_objects(t / self.fps)
-                # Only clear caches at keyframes, not every frame
-                self.drawablegroup_frame_cache = {}
-                self.drawablegroup_transformed_frame_cache = {}
-                self._animation_state_cache = {}  # Clear animation state cache at keyframes
-                self._event_progress_cache = {}  # Clear event progress cache at keyframes
-                self._frame_opsset_cache = {}  # Clear frame opsset cache at keyframes
-                current_static_frame_opsset, current_dynamic_objects = (
-                    self._build_static_frame_opsset(
-                        current_active_objects,
-                        t,
-                        drawable_events_mapping,
-                    )
-                )
-
-            if not current_dynamic_objects:
-                # Static-only frames can reuse the same OpsSet object across many frames.
-                scene_opsset_list.append(current_static_frame_opsset)
-                continue
-
-            frame_opsset = current_static_frame_opsset.clone()
-
-            # for each of these active objects, calculate what all events need to apply upto which progress
-            for object_id in current_dynamic_objects:
-                event_and_progress = self.get_object_event_and_progress(
-                    object_id, t, drawable_events_mapping
-                )
-
-                # now we have all the events, so get the animated opsset
-                animated_opsset = self.get_animated_opsset_at_time(
-                    drawable_id=object_id,
-                    t=t,
-                    event_and_progress=event_and_progress,
-                    drawable_events_mapping=drawable_events_mapping,
-                )
-                frame_opsset.extend(animated_opsset)
-            scene_opsset_list.append(frame_opsset)  # create the list of ops at scene
-        return scene_opsset_list
+        return list(
+            self._tqdm_bar(
+                self._iter_event_timeline(max_length),
+                desc="Calculating animation frames...",
+                total=int(np.round((self._infer_default_length() if max_length is None else float(max_length)) * self.fps)) + 1,
+            )
+        )
 
     def render_snapshot(
         self,
@@ -957,7 +958,6 @@ class Scene:
         resolved_max_length = (
             self._infer_default_length() if max_length is None else float(max_length)
         )
-        opsset_list = self.create_event_timeline(resolved_max_length)
         output_file_ext = Path(output_path).suffix.lower().lstrip(".")
         if output_file_ext.lower() == "gif" and self.audio_tracks:
             msg = "Audio tracks are not supported when rendering GIF output"
@@ -1017,8 +1017,13 @@ class Scene:
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
                 last_frame_opsset: OpsSet | None = None
                 last_frame_np = None
+                frame_total = int(np.round(resolved_max_length * self.fps)) + 1
                 for frame_index, frame_ops in enumerate(
-                    self._tqdm_bar(opsset_list, desc=tqdm_desc, total=len(opsset_list))
+                    self._tqdm_bar(
+                        self._iter_event_timeline(resolved_max_length),
+                        desc=tqdm_desc,
+                        total=frame_total,
+                    )
                 ):
                     if frame_ops is last_frame_opsset and last_frame_np is not None:
                         writer.append_data(last_frame_np)  # type: ignore[attr-defined]
