@@ -300,7 +300,18 @@ class Scene:
         return codec, ffmpeg_params
 
     def _iter_event_timeline(self, max_length: float | None = None):
-        """Yield frame OpsSet objects one at a time to avoid holding the full timeline in memory."""
+        """Yield combined frame OpsSet objects one at a time to avoid holding the full timeline in memory."""
+        for static_frame_opsset, dynamic_frame_opsset in self._iter_frame_layers(max_length):
+            if dynamic_frame_opsset is None:
+                yield static_frame_opsset
+                continue
+
+            frame_opsset = static_frame_opsset.clone()
+            frame_opsset.extend(dynamic_frame_opsset)
+            yield frame_opsset
+
+    def _iter_frame_layers(self, max_length: float | None = None):
+        """Yield static and dynamic frame layers separately so rendering can reuse the static layer."""
         key_frames, drawable_events_mapping = self.find_key_frames()
         if max_length is None:
             max_length = self._infer_default_length()
@@ -338,10 +349,10 @@ class Scene:
                 )
 
             if not current_dynamic_objects:
-                yield current_static_frame_opsset
+                yield current_static_frame_opsset, None
                 continue
 
-            frame_opsset = current_static_frame_opsset.clone()
+            dynamic_frame_opsset = OpsSet(initial_set=[])
 
             # for each of these active objects, calculate what all events need to apply upto which progress
             for object_id in current_dynamic_objects:
@@ -356,8 +367,8 @@ class Scene:
                     event_and_progress=event_and_progress,
                     drawable_events_mapping=drawable_events_mapping,
                 )
-                frame_opsset.extend(animated_opsset)
-            yield frame_opsset
+                dynamic_frame_opsset.extend(animated_opsset)
+            yield current_static_frame_opsset, dynamic_frame_opsset
 
     def set_viewport_to_identity(self) -> None:
         """
@@ -1014,42 +1025,55 @@ class Scene:
 
         try:
             with write_obj as writer:
-                surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
-                last_frame_opsset: OpsSet | None = None
-                last_frame_np = None
+                static_surface: cairo.ImageSurface | None = None
+                static_surface_np = None
+                last_static_opsset: OpsSet | None = None
                 frame_total = int(np.round(resolved_max_length * self.fps)) + 1
-                for frame_index, frame_ops in enumerate(
-                    self._tqdm_bar(
-                        self._iter_event_timeline(resolved_max_length),
-                        desc=tqdm_desc,
-                        total=frame_total,
-                    )
+                frame_iter = self._iter_frame_layers(resolved_max_length)
+                for frame_index, (static_frame_ops, dynamic_frame_ops) in enumerate(
+                    self._tqdm_bar(frame_iter, desc=tqdm_desc, total=frame_total)
                 ):
-                    if frame_ops is last_frame_opsset and last_frame_np is not None:
-                        writer.append_data(last_frame_np)  # type: ignore[attr-defined]
+                    if static_surface is None or static_frame_ops is not last_static_opsset:
+                        static_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
+                        static_ctx = cairo.Context(static_surface)
+
+                        if self.background_color is not None:
+                            static_ctx.set_source_rgb(*self.background_color)
+                        static_ctx.paint()
+
+                        self.viewport.apply_to_context(static_ctx)
+                        static_frame_ops.render(
+                            static_ctx,
+                            render_context={
+                                "scene_time": frame_index / self.fps,
+                                "frame_index": frame_index,
+                                "fps": self.fps,
+                            },
+                        )
+                        static_surface_np = cairo_surface_to_numpy(static_surface)
+                        last_static_opsset = static_frame_ops
+
+                    if dynamic_frame_ops is None:
+                        writer.append_data(static_surface_np)  # type: ignore[attr-defined]
                         continue
 
-                    ctx = cairo.Context(surface)  # create cairo context
+                    frame_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
+                    frame_ctx = cairo.Context(frame_surface)
+                    frame_ctx.set_source_surface(static_surface, 0, 0)
+                    frame_ctx.paint()
 
-                    # optional background
-                    if self.background_color is not None:
-                        ctx.set_source_rgb(*self.background_color)
-                    ctx.paint()
-
-                    self.viewport.apply_to_context(ctx)
-                    frame_ops.render(
-                        ctx,
+                    self.viewport.apply_to_context(frame_ctx)
+                    dynamic_frame_ops.render(
+                        frame_ctx,
                         render_context={
                             "scene_time": frame_index / self.fps,
                             "frame_index": frame_index,
                             "fps": self.fps,
                         },
-                    )  # applies the operations to cairo context
+                    )
 
-                    frame_np = cairo_surface_to_numpy(surface)
-                    writer.append_data(frame_np)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
-                    last_frame_opsset = frame_ops
-                    last_frame_np = frame_np
+                    frame_np = cairo_surface_to_numpy(frame_surface)
+                    writer.append_data(frame_np)  # type: ignore[attr-defined]
 
             if temp_output_path is not None:
                 attach_audio_to_video(
