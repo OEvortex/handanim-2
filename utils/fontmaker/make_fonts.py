@@ -40,7 +40,7 @@ def detect_grid_cells(
     """
     # load in grayscale
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    _, thresh = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY_INV)
+    _, thresh = cv2.threshold(img, 200, 255, cv2.THRESH_BINARY_INV)  # ty:ignore[no-matching-overload]
 
     # morph closing
     kernel = np.ones((3, 3), np.uint8)
@@ -111,7 +111,7 @@ def convert_png_to_svg(img_path: str, svg_path: str) -> None:
     img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
 
     # Convert to binary (invert so handwriting is white on black)
-    _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY_INV)
+    _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY_INV)  # ty:ignore[no-matching-overload]
 
     # Normalize binary image to 0-1 for skeletonization
     binary_norm = binary // 255
