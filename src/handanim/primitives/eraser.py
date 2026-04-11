@@ -44,15 +44,24 @@ class Eraser(Drawable):
 
         min_x, min_y, max_x, max_y = self.drawable_cache.calculate_bounding_box(self.objects_to_erase)
 
-        # TODO: do the rotation, perform the zigzag motion here
+        # Zigzag motion: draw horizontal lines alternating left-right, creating an erasing pattern
         spacing = self.stroke_style.width * 10
         y = min_y
         opsset.add(Ops(OpsType.MOVE_TO, [(min_x, min_y)]))  # move to top left corner
+        going_right = True
         while y <= max_y:
-            opsset.add(Ops(OpsType.LINE_TO, [(max_x, y)]))
-            y += spacing
-            if y <= max_y:
-                # we can do zigzag motion now
+            # Draw horizontal line across the bounding box
+            if going_right:
+                opsset.add(Ops(OpsType.LINE_TO, [(max_x, y)]))
+            else:
                 opsset.add(Ops(OpsType.LINE_TO, [(min_x, y)]))
+            y += spacing
+            # Return path for the next horizontal line (if there's more area to cover)
+            if y <= max_y:
+                if going_right:
+                    opsset.add(Ops(OpsType.LINE_TO, [(min_x, y)]))
+                else:
+                    opsset.add(Ops(OpsType.LINE_TO, [(max_x, y)]))
+                going_right = not going_right  # flip direction for next line
 
         return opsset
