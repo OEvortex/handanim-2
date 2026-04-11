@@ -59,10 +59,11 @@ def _cached_mathtex_path(
     
     expression = _normalize_mathtex_expression(tex_expression)
     
-    # Configure preamble for amsmath support when using usetex
+    # Configure a LaTeX preamble with the packages we rely on when using usetex.
+    # amsmath provides \text, and amssymb provides \mathbb.
     if usetex:
         original_preamble = mpl.rcParams['text.latex.preamble']
-        mpl.rcParams['text.latex.preamble'] = r'\usepackage{amsmath}'
+        mpl.rcParams['text.latex.preamble'] = r'\usepackage{amsmath,amssymb}'
     
     try:
         return TextPath(
@@ -209,7 +210,7 @@ class MathTex(Drawable):
         position: tuple[float, float],
         font_size: int = 12,
         font_name: str | None = None,
-        usetex: bool = True,
+        usetex: bool = False,
         **kwargs,
     ) -> None:
         tex_expression = kwargs.pop("tex_expression", None)

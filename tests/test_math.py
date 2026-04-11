@@ -93,6 +93,23 @@ def test_math_legacy_primitive_still_renders_basic_formula() -> None:
     assert max_y > min_y
 
 
+def test_math_legacy_primitive_defaults_to_mathtext_for_mixed_text_and_symbols() -> None:
+    stroke_style, sketch_style = _styles()
+    drawable = Math(
+        tex_expression=r"Result: $\mathbb{E}[\text{Attention}] = \text{Unbiased True Attention}$",
+        position=(100.0, 80.0),
+        font_size=48,
+        stroke_style=stroke_style,
+        sketch_style=sketch_style,
+    )
+
+    assert drawable.usetex is False
+
+    min_x, min_y, max_x, max_y = drawable.draw().get_bbox()
+    assert max_x > min_x
+    assert max_y > min_y
+
+
 def test_math_glyph_construction_is_cached_for_standard_fonts() -> None:
     math_module._cached_standard_math_glyph_ops.cache_clear()
     stroke_style, sketch_style = _styles()
