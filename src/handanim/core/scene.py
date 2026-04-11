@@ -1,14 +1,18 @@
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
+import importlib
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
+import sys
 from typing import TYPE_CHECKING
 
 import cairo
 import imageio.v2 as imageio
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 if TYPE_CHECKING:
     from .animation import AnimationEvent
@@ -149,6 +153,81 @@ class Scene:
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             # nvidia-smi not found or failed
             return False
+
+    def _ensure_ffmpeg_available(self) -> str | None:
+        """
+        Ensure an ffmpeg executable is available for rendering.
+
+        Returns:
+            Path to a usable ffmpeg executable, or None if one could not be resolved.
+        """
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            return ffmpeg_path
+
+        try:
+            imageio_ffmpeg = importlib.import_module("imageio_ffmpeg")
+        except ImportError:
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--quiet", "imageio-ffmpeg"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except (OSError, subprocess.CalledProcessError):
+                return None
+
+            try:
+                imageio_ffmpeg = importlib.import_module("imageio_ffmpeg")
+            except ImportError:
+                return None
+
+        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        if ffmpeg_path:
+            os.environ.setdefault("IMAGEIO_FFMPEG_EXE", ffmpeg_path)
+            return ffmpeg_path
+        return None
+
+    def _gpu_encoder_is_available(self) -> bool:
+        """
+        Check whether NVENC encoding can actually be used.
+
+        A CUDA/NVIDIA device alone is not enough; ffmpeg also needs to expose
+        the h264_nvenc encoder.
+        """
+        if not self._check_gpu_available():
+            return False
+
+        ffmpeg_path = self._ensure_ffmpeg_available()
+        if ffmpeg_path is None:
+            return False
+
+        try:
+            result = subprocess.run(
+                [ffmpeg_path, "-hide_banner", "-encoders"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+        return result.returncode == 0 and "h264_nvenc" in result.stdout
+
+    def _tqdm_bar(self, iterable, *, desc: str, total: int | None = None):
+        """Return a modern tqdm iterator with a compact, responsive bar."""
+        return tqdm(
+            iterable,
+            desc=desc,
+            total=total,
+            dynamic_ncols=True,
+            colour="cyan",
+            smoothing=0.15,
+            mininterval=0.2,
+            bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+        )
 
     def _get_encoder_codec_and_params(self) -> tuple[str, list[str]]:
         """
@@ -743,7 +822,11 @@ class Scene:
         # Cache key: (drawable_id, event_idx, frame) -> OpsSet
         self._animation_state_cache = {}
         
-        for t in tqdm(range(frame_count + 1), desc="Calculating animation frames..."):
+        for t in self._tqdm_bar(
+            range(frame_count + 1),
+            desc="Calculating animation frames...",
+            total=frame_count + 1,
+        ):
             frame_opsset = OpsSet(initial_set=[])  # initialize with blank opsset, will add more
 
             # for each frame, update the current active objects if it is a keyframe
@@ -867,15 +950,22 @@ class Scene:
             frame_duration_ms = 1000 / self.fps  # duration per frame in milliseconds
             write_obj = imageio.get_writer(render_target, mode="I", duration=frame_duration_ms)
         else:
+            effective_render_device = self.render_device
             tqdm_desc = "Rendering video..."
-            if self.render_device == "gpu":
+            if effective_render_device == "gpu" and self._gpu_encoder_is_available():
                 tqdm_desc += " (GPU accelerated)"
+            elif effective_render_device == "gpu":
+                effective_render_device = "cpu"
+                tqdm_desc += " (GPU unavailable, falling back to CPU)"
             
             # Get encoder codec and params based on render_device
+            original_render_device = self.render_device
+            self.render_device = effective_render_device
             codec, ffmpeg_params = self._get_encoder_codec_and_params()
+            self.render_device = original_render_device
             
             # Override threads parameter if not using GPU (GPU doesn't use CPU threads the same way)
-            if self.render_device == "gpu":
+            if effective_render_device == "gpu":
                 # Find and replace the threads value in ffmpeg_params
                 for i, param in enumerate(ffmpeg_params):
                     if param == "-threads" and i + 1 < len(ffmpeg_params):
@@ -899,7 +989,9 @@ class Scene:
         try:
             with write_obj as writer:
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
-                for frame_index, frame_ops in enumerate(tqdm(opsset_list, desc=tqdm_desc)):
+                for frame_index, frame_ops in enumerate(
+                    self._tqdm_bar(opsset_list, desc=tqdm_desc, total=len(opsset_list))
+                ):
                     ctx = cairo.Context(surface)  # create cairo context
 
                     # optional background
