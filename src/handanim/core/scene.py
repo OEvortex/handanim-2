@@ -1,6 +1,7 @@
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
+import subprocess
 import tempfile
 from typing import TYPE_CHECKING
 
@@ -45,12 +46,30 @@ class Scene:
         background_color: tuple[float, float, float] = (1, 1, 1),
         viewport: Viewport | None = None,
         render_quality: str = "fast",
+        render_device: str = "cpu",
     ) -> None:
+        """
+        Initialize a Scene for animation rendering.
+
+        Args:
+            width: Width of the rendering surface in pixels.
+            height: Height of the rendering surface in pixels.
+            fps: Frames per second for video rendering.
+            background_color: RGB color for scene background (values 0-1).
+            viewport: Defines coordinate mapping between world and screen space.
+            render_quality: Quality preset for rendering. One of "fast", "medium", "high".
+            render_device: Device to use for video encoding. One of "cpu", "gpu", "cuda", "auto".
+                - "cpu": Use CPU-based encoding (libx264)
+                - "gpu": Use GPU-accelerated encoding (h264_nvenc for NVIDIA)
+                - "cuda": Alias for "gpu"
+                - "auto": Automatically detect and use GPU if available, fallback to CPU
+        """
         self.width = width
         self.height = height
         self.fps = fps
         self.background_color = background_color
         self.render_quality = render_quality
+        self.render_device = self._resolve_render_device(render_device)
         self.drawable_cache = DrawableCache()
         self.events: list[tuple[AnimationEvent, str]] = []
         self.object_timelines: dict[str, list[float]] = {}
@@ -87,6 +106,94 @@ class Scene:
                 screen_height=height,
                 margin=20,
             )
+
+    def _resolve_render_device(self, device: str) -> str:
+        """
+        Resolve the rendering device to use for video encoding.
+
+        Args:
+            device: Device specification string ("cpu", "gpu", "cuda", "auto")
+
+        Returns:
+            Resolved device type ("cpu" or "gpu")
+        """
+        if device in ("gpu", "cuda"):
+            return "gpu"
+        elif device == "cpu":
+            return "cpu"
+        elif device == "auto":
+            # Auto-detect GPU availability
+            if self._check_gpu_available():
+                return "gpu"
+            return "cpu"
+        else:
+            # Default to CPU for unknown values
+            return "cpu"
+
+    def _check_gpu_available(self) -> bool:
+        """
+        Check if GPU encoding is available (NVIDIA GPU with NVENC support).
+
+        Returns:
+            True if NVIDIA GPU is available for hardware-accelerated encoding
+        """
+        try:
+            # Check for NVIDIA GPU via nvidia-smi
+            result = subprocess.run(
+                ["nvidia-smi"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            # nvidia-smi not found or failed
+            return False
+
+    def _get_encoder_codec_and_params(self) -> tuple[str, list[str]]:
+        """
+        Get the appropriate encoder codec and FFmpeg parameters based on render_device.
+
+        Returns:
+            Tuple of (codec_name, ffmpeg_params_list)
+        """
+        if self.render_device == "gpu":
+            # Use NVIDIA NVENC hardware encoder
+            codec = "h264_nvenc"
+            ffmpeg_params = [
+                "-preset",
+                "p7",  # Highest quality preset for NVENC (p1-p7, p7 is slowest/best)
+                "-tune",
+                "hq",  # High quality tune
+                "-threads",
+                "0",  # Let encoder decide (GPU doesn't use CPU threads the same way)
+            ]
+            # Add quality-specific params for NVENC
+            if self.render_quality == "fast":
+                ffmpeg_params.extend(["-rc", "vbr", "-cq", "35"])
+            elif self.render_quality == "medium":
+                ffmpeg_params.extend(["-rc", "vbr", "-cq", "28"])
+            else:  # high
+                ffmpeg_params.extend(["-rc", "vbr", "-cq", "20"])
+        else:
+            # Use CPU-based libx264 encoder
+            codec = "libx264"
+            ffmpeg_params = [
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "animation",
+                "-threads",
+                "0",  # Will be overridden in render() if specified
+            ]
+            if self.render_quality == "fast":
+                ffmpeg_params.extend(["-crf", "28"])
+            elif self.render_quality == "medium":
+                ffmpeg_params.extend(["-crf", "23"])
+            else:  # high
+                ffmpeg_params.extend(["-crf", "18"])
+
+        return codec, ffmpeg_params
 
     def set_viewport_to_identity(self) -> None:
         """
@@ -761,24 +868,30 @@ class Scene:
             write_obj = imageio.get_writer(render_target, mode="I", duration=frame_duration_ms)
         else:
             tqdm_desc = "Rendering video..."
-            ffmpeg_params = [
-                "-preset",
-                "ultrafast",
-                "-tune",
-                "animation",
-                "-threads",
-                str(threads),
-            ]
-            if self.render_quality == "fast":
-                ffmpeg_params.extend(["-crf", "28"])
-            elif self.render_quality == "medium":
-                ffmpeg_params.extend(["-crf", "23"])
-            else:  # high
-                ffmpeg_params.extend(["-crf", "18"])
+            if self.render_device == "gpu":
+                tqdm_desc += " (GPU accelerated)"
+            
+            # Get encoder codec and params based on render_device
+            codec, ffmpeg_params = self._get_encoder_codec_and_params()
+            
+            # Override threads parameter if not using GPU (GPU doesn't use CPU threads the same way)
+            if self.render_device == "gpu":
+                # Find and replace the threads value in ffmpeg_params
+                for i, param in enumerate(ffmpeg_params):
+                    if param == "-threads" and i + 1 < len(ffmpeg_params):
+                        ffmpeg_params[i + 1] = "0"  # Let GPU encoder decide
+                        break
+            elif threads > 0:
+                # Override threads for CPU encoding
+                for i, param in enumerate(ffmpeg_params):
+                    if param == "-threads" and i + 1 < len(ffmpeg_params):
+                        ffmpeg_params[i + 1] = str(threads)
+                        break
+            
             write_obj = imageio.get_writer(
                 render_target,
                 fps=self.fps,
-                codec="libx264",
+                codec=codec,
                 macro_block_size=1,
                 ffmpeg_params=ffmpeg_params,
             )

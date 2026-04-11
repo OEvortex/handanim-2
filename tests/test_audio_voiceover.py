@@ -86,12 +86,13 @@ def test_render_with_audio_uses_muxer_and_infers_length(tmp_path, monkeypatch) -
         captured["writer_kwargs"] = kwargs
         return FakeWriter()
 
-    def fake_attach_audio_to_video(video_path, output_path, audio_tracks, duration, fps):
+    def fake_attach_audio_to_video(video_path, output_path, audio_tracks, duration, fps, threads=0):
         captured["video_path"] = video_path
         captured["output_path"] = output_path
         captured["audio_track_count"] = len(audio_tracks)
         captured["duration"] = duration
         captured["fps"] = fps
+        captured["threads"] = threads
 
     monkeypatch.setattr(scene_module.imageio, "get_writer", fake_get_writer)
     monkeypatch.setattr(scene_module, "attach_audio_to_video", fake_attach_audio_to_video)
