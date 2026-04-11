@@ -852,8 +852,6 @@ class Scene:
             desc="Calculating animation frames...",
             total=frame_count + 1,
         ):
-            frame_opsset = OpsSet(initial_set=[])  # initialize with blank opsset, will add more
-
             # for each frame, update the current active objects if it is a keyframe
             if t in key_frame_index_set:
                 current_active_objects = self.get_active_objects(t / self.fps)
@@ -871,11 +869,14 @@ class Scene:
                     )
                 )
 
+            if not current_dynamic_objects:
+                # Static-only frames can reuse the same OpsSet object across many frames.
+                scene_opsset_list.append(current_static_frame_opsset)
+                continue
+
+            frame_opsset = current_static_frame_opsset.clone()
+
             # for each of these active objects, calculate what all events need to apply upto which progress
-            frame_opsset.extend(current_static_frame_opsset)
-            # OPTIMIZATION: Don't clear caches every frame - only at keyframes!
-            # self.drawablegroup_frame_cache = {}
-            # self.drawablegroup_transformed_frame_cache = {}
             for object_id in current_dynamic_objects:
                 event_and_progress = self.get_object_event_and_progress(
                     object_id, t, drawable_events_mapping
@@ -1014,9 +1015,15 @@ class Scene:
         try:
             with write_obj as writer:
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
+                last_frame_opsset: OpsSet | None = None
+                last_frame_np = None
                 for frame_index, frame_ops in enumerate(
                     self._tqdm_bar(opsset_list, desc=tqdm_desc, total=len(opsset_list))
                 ):
+                    if frame_ops is last_frame_opsset and last_frame_np is not None:
+                        writer.append_data(last_frame_np)  # type: ignore[attr-defined]
+                        continue
+
                     ctx = cairo.Context(surface)  # create cairo context
 
                     # optional background
@@ -1036,6 +1043,8 @@ class Scene:
 
                     frame_np = cairo_surface_to_numpy(surface)
                     writer.append_data(frame_np)  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+                    last_frame_opsset = frame_ops
+                    last_frame_np = frame_np
 
             if temp_output_path is not None:
                 attach_audio_to_video(
