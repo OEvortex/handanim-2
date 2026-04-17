@@ -1,6 +1,11 @@
+from .bounce import BounceInAnimation, BounceOutAnimation
+from .effects import FlashAnimation, JitterAnimation, PulseAnimation, WiggleAnimation
 from .fade import FadeInAnimation, FadeOutAnimation
 from .morph import MorphAnimation, ReplacementTransformAnimation, TransformAnimation
+from .rotate import RotateAnimation, SpinAnimation
+from .scale import GrowFromCenterAnimation, ScaleFromPointAnimation, ShrinkToPointAnimation
 from .sketch import SketchAnimation
+from .slide import SlideAnimation, SlideInAnimation, SlideOutAnimation
 from .three_d import (
     AmbientCameraRotationAnimation,
     IllusionCameraRotationAnimation,
@@ -43,6 +48,9 @@ __all__ = [
     "ApplyMethod",
     "ApplyPointwiseFunction",
     "ApplyPointwiseFunctionToCenter",
+    "AmbientCameraRotationAnimation",
+    "BounceInAnimation",
+    "BounceOutAnimation",
     "ClockwiseTransform",
     "CounterclockwiseTransform",
     "CyclicReplace",
@@ -51,20 +59,30 @@ __all__ = [
     "FadeTransformPieces",
     "FadeInAnimation",
     "FadeOutAnimation",
+    "FlashAnimation",
+    "GrowFromCenterAnimation",
     "IllusionCameraRotationAnimation",
+    "JitterAnimation",
     "MorphAnimation",
     "MoveCameraAnimation",
     "MoveTo3DAnimation",
     "MoveToTarget",
-    "AmbientCameraRotationAnimation",
+    "PulseAnimation",
     "ReplacementTransform",
     "ReplacementTransformAnimation",
-    "Rotate3DAnimation",
     "Restore",
-    "ScaleInPlace",
+    "RotateAnimation",
+    "Rotate3DAnimation",
     "Scale3DAnimation",
-    "SketchAnimation",
+    "ScaleFromPointAnimation",
+    "ScaleInPlace",
+    "ShrinkToPointAnimation",
     "ShrinkToCenter",
+    "SketchAnimation",
+    "SlideAnimation",
+    "SlideInAnimation",
+    "SlideOutAnimation",
+    "SpinAnimation",
     "Swap",
     "Transform",
     "TransformAnimations",
@@ -74,6 +92,7 @@ __all__ = [
     "TranslateFromAnimation",
     "TranslateToAnimation",
     "TranslateToPersistAnimation",
+    "WiggleAnimation",
     "ZoomInAnimation",
     "ZoomOutAnimation",
 ]

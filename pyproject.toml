@@ -18,6 +18,7 @@ dependencies = [
     "matplotlib>=3.7.0,<4.0.0",
     "svgelements>=1.9.6",
     "svgpathtools>=1.7.0",
+    "webscout>=2026.4.8",
 ]
 
 [dependency-groups]
