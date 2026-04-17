@@ -1,16 +1,57 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
+import tempfile
+import shutil
+import importlib
 from typing import Any
 
-from moviepy import AudioFileClip, CompositeAudioClip, VideoFileClip
+from moviepy import AudioFileClip, CompositeAudioClip
 
 _BOOKMARK_PATTERN = re.compile(
     r"<bookmark\s+(?:mark|name)\s*=\s*['\"](?P<mark>[^'\"]+)['\"]\s*/>"
 )
 _AUDIO_DURATION_CACHE: dict[str, float] = {}
+
+
+def _ensure_ffmpeg_available() -> str | None:
+    """
+    Ensure an ffmpeg executable is available for audio attachment.
+    
+    Returns:
+        Path to a usable ffmpeg executable, or None if one could not be resolved.
+    """
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return ffmpeg_path
+
+    try:
+        imageio_ffmpeg = importlib.import_module("imageio_ffmpeg")
+    except ImportError:
+        try:
+            subprocess.run(
+                ["python", "-m", "pip", "install", "--quiet", "imageio-ffmpeg"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+        try:
+            imageio_ffmpeg = importlib.import_module("imageio_ffmpeg")
+        except ImportError:
+            return None
+
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    if ffmpeg_path:
+        os.environ.setdefault("IMAGEIO_FFMPEG_EXE", ffmpeg_path)
+        return ffmpeg_path
+    return None
 
 
 def resolve_audio_path(path: str) -> str:
@@ -173,43 +214,105 @@ def attach_audio_to_video(
     fps: int,
     threads: int = 0,
 ) -> None:
-    moviepy_audio_clips = []
-    composite_audio = None
-    video_clip = None
-    final_clip = None
+    """Attach audio tracks to video using direct ffmpeg (fast, no video re-encoding)."""
+    if not audio_tracks:
+        # No audio, just copy video
+        shutil.copy(video_path, output_path)
+        return
 
-    try:
-        moviepy_audio_clips = [track.to_moviepy_clip() for track in audio_tracks]
-        composite_audio = CompositeAudioClip(moviepy_audio_clips)
-        composite_audio.fps = getattr(composite_audio, "fps", None) or 44_100
-        if hasattr(composite_audio, "with_duration"):
-            composite_audio = composite_audio.with_duration(duration)
-        else:
-            composite_audio = composite_audio.set_duration(duration)
-
-        video_clip = VideoFileClip(video_path)
-        if hasattr(video_clip, "with_audio"):
-            final_clip = video_clip.with_audio(composite_audio)
-        else:
-            final_clip = video_clip.set_audio(composite_audio)
+    # Try to use ffmpeg for fast audio attachment (no video re-encoding)
+    ffmpeg_path = _ensure_ffmpeg_available()
+    
+    if ffmpeg_path:
+        # Use moviepy only to mix audio tracks, then use ffmpeg to attach without re-encoding video
+        moviepy_audio_clips = []
+        composite_audio = None
+        temp_audio_path = None
         
-        # Build ffmpeg params for multithreading
-        ffmpeg_params = ["-threads", str(threads)] if threads > 0 else None
-        final_clip.write_videofile(
-            output_path,
-            fps=fps,
-            codec="libx264",
-            audio_codec="aac",
-            audio_fps=44_100,
-            ffmpeg_params=ffmpeg_params,
-            logger=None,
-        )
-    finally:
-        if final_clip is not None:
-            final_clip.close()
-        if video_clip is not None:
-            video_clip.close()
-        if composite_audio is not None and hasattr(composite_audio, "close"):
-            composite_audio.close()
-        for clip in moviepy_audio_clips:
-            clip.close()
+        try:
+            # Mix audio tracks using moviepy
+            moviepy_audio_clips = [track.to_moviepy_clip() for track in audio_tracks]
+            composite_audio = CompositeAudioClip(moviepy_audio_clips)
+            composite_audio.fps = getattr(composite_audio, "fps", None) or 44_100
+            if hasattr(composite_audio, "with_duration"):
+                composite_audio = composite_audio.with_duration(duration)
+            else:
+                composite_audio = composite_audio.set_duration(duration)
+
+            # Write mixed audio to temporary file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+                temp_audio_path = temp_audio.name
+            
+            composite_audio.write_audiofile(temp_audio_path, fps=44_100, logger=None, codec='pcm_s16le')
+            
+            # Use ffmpeg to combine video and audio WITHOUT re-encoding video
+            cmd = [
+                ffmpeg_path,
+                "-y",  # Overwrite output
+                "-i", video_path,  # Video input
+                "-i", temp_audio_path,  # Audio input
+                "-c:v", "copy",  # Copy video stream (no re-encoding) - THIS IS THE KEY OPTIMIZATION
+                "-c:a", "aac",  # Encode audio to AAC
+                "-map", "0:v:0",  # Use video from first input
+                "-map", "1:a:0",  # Use audio from second input
+                "-shortest",  # Use shortest duration
+            ]
+            
+            if threads > 0:
+                cmd.extend(["-threads", str(threads)])
+            
+            cmd.append(output_path)
+            
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            
+        finally:
+            if composite_audio is not None and hasattr(composite_audio, "close"):
+                composite_audio.close()
+            for clip in moviepy_audio_clips:
+                clip.close()
+            if temp_audio_path and Path(temp_audio_path).exists():
+                Path(temp_audio_path).unlink()
+    else:
+        # Fallback to moviepy if ffmpeg not available (slower but works)
+        from moviepy import VideoFileClip
+        
+        moviepy_audio_clips = []
+        composite_audio = None
+        video_clip = None
+        final_clip = None
+
+        try:
+            moviepy_audio_clips = [track.to_moviepy_clip() for track in audio_tracks]
+            composite_audio = CompositeAudioClip(moviepy_audio_clips)
+            composite_audio.fps = getattr(composite_audio, "fps", None) or 44_100
+            if hasattr(composite_audio, "with_duration"):
+                composite_audio = composite_audio.with_duration(duration)
+            else:
+                composite_audio = composite_audio.set_duration(duration)
+
+            video_clip = VideoFileClip(video_path)
+            if hasattr(video_clip, "with_audio"):
+                final_clip = video_clip.with_audio(composite_audio)
+            else:
+                final_clip = video_clip.set_audio(composite_audio)
+            
+            # Build ffmpeg params for multithreading
+            ffmpeg_params = ["-threads", str(threads)] if threads > 0 else None
+            final_clip.write_videofile(
+                output_path,
+                fps=fps,
+                codec="libx264",
+                audio_codec="aac",
+                audio_fps=44_100,
+                ffmpeg_params=ffmpeg_params,
+                logger=None,
+            )
+        finally:
+            if final_clip is not None:
+                final_clip.close()
+            if video_clip is not None:
+                video_clip.close()
+            if composite_audio is not None and hasattr(composite_audio, "close"):
+                composite_audio.close()
+            for clip in moviepy_audio_clips:
+                clip.close()

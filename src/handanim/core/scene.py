@@ -1078,14 +1078,23 @@ class Scene:
                     writer.append_data(frame_np)  # type: ignore[attr-defined]
 
             if temp_output_path is not None:
-                attach_audio_to_video(
-                    video_path=str(temp_output_path),
-                    output_path=output_path,
-                    audio_tracks=self.audio_tracks,
-                    duration=resolved_max_length,
-                    fps=self.fps,
-                    threads=threads,
-                )
+                # Show progress for audio attachment
+                with tqdm(
+                    desc="Attaching audio...",
+                    total=1,
+                    dynamic_ncols=True,
+                    colour="yellow",
+                    bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+                ) as pbar:
+                    attach_audio_to_video(
+                        video_path=str(temp_output_path),
+                        output_path=output_path,
+                        audio_tracks=self.audio_tracks,
+                        duration=resolved_max_length,
+                        fps=self.fps,
+                        threads=threads,
+                    )
+                    pbar.update(1)
         finally:
             if temp_output_path is not None and temp_output_path.exists():
                 temp_output_path.unlink()
