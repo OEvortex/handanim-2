@@ -467,25 +467,198 @@ class Scene:
         finally:
             self.timeline_cursor = max(self.timeline_cursor, tracker.end_time)
 
+    @contextmanager
+    def group(
+        self,
+        tts_provider: Any | None = None,
+        speech: str | None = None,
+        audio_path: str | None = None,
+        **tts_kwargs,
+    ) -> Generator[AudioTrack | None, None, None]:
+        """
+        Context manager for grouping multiple animations with a single audio track.
+
+        All animations added within this context will share the same audio.
+        The timeline won't auto-advance until the group exits.
+
+        Args:
+            tts_provider: TTS provider for audio synthesis.
+            speech: Text to synthesize.
+            audio_path: Path to existing audio file.
+            **tts_kwargs: Additional TTS parameters.
+
+        Yields:
+            AudioTrack if audio was added, None otherwise.
+
+        Example:
+            >>> with scene.group(tts_provider=edge_tts, speech="Welcome to the demo"):
+            ...     scene.add(SketchAnimation(start_time=0.0, duration=1.0), title)
+            ...     scene.add(SketchAnimation(start_time=0.5, duration=1.0), subtitle)
+            ...     # Both animations share the same audio
+        """
+        group_start_cursor = self.timeline_cursor
+        self._in_group = True
+        added_track = None
+
+        # Handle audio synthesis at group start
+        if audio_path is not None or (tts_provider is not None and speech is not None):
+            resolved_audio_path = audio_path
+
+            if resolved_audio_path is None and tts_provider is not None and speech is not None:
+                # Synthesize audio using TTS provider
+                if not hasattr(self, '_audio_temp_dir'):
+                    self._audio_temp_dir = Path(tempfile.gettempdir()) / f"handanim_scene_{id(self)}"
+                self._audio_temp_dir.mkdir(parents=True, exist_ok=True)
+
+                import hashlib
+                speech_hash = hashlib.md5(speech.encode()).hexdigest()[:8]
+                time_marker = f"{group_start_cursor:.2f}"
+                audio_filename = f"group_{time_marker}_{speech_hash}.mp3"
+                resolved_audio_path = str(self._audio_temp_dir / audio_filename)
+
+                if not Path(resolved_audio_path).exists():
+                    if isinstance(tts_provider, type):
+                        provider_instance = tts_provider()
+                    else:
+                        provider_instance = tts_provider
+
+                    if hasattr(provider_instance, 'synthesize'):
+                        synthesized_path = provider_instance.synthesize(speech, resolved_audio_path, **tts_kwargs)
+                        if synthesized_path:
+                            resolved_audio_path = synthesized_path
+                    elif hasattr(tts_provider, 'Communicate'):
+                        import asyncio
+                        async def synthesize():
+                            communicate = tts_provider.Communicate(speech, **tts_kwargs)
+                            await communicate.save(resolved_audio_path)
+                        asyncio.run(synthesize())
+                    else:
+                        msg = f"TTS provider must have a 'synthesize' method or be edge-tts compatible"
+                        raise AttributeError(msg)
+
+            # Add audio track at group start
+            track = AudioTrack(
+                path=resolved_audio_path,
+                start_time=group_start_cursor,
+                volume=tts_kwargs.get('volume', 1.0),
+            )
+            self.audio_tracks.append(track)
+            added_track = track
+
+        try:
+            yield added_track
+        finally:
+            self._in_group = False
+            # Advance timeline to after group ends
+            if added_track is not None:
+                self.timeline_cursor = max(self.timeline_cursor, added_track.end_time)
+            else:
+                # If no audio, advance based on the last event in the group
+                if self.events:
+                    last_event_end = max(event[0].end_time for event in self.events)
+                    self.timeline_cursor = max(self.timeline_cursor, last_event_end)
+
     def add(
         self,
-        event: AnimationEvent,
+        event: AnimationEvent | None = None,
         drawable: Drawable | None = None,
+        tts_provider: Any | None = None,
+        speech: str | None = None,
+        audio_path: str | None = None,
+        **tts_kwargs,
     ) -> None:
         """
-        Adds an animation event to a drawable primitive in the scene.
+        Adds an animation event to a drawable primitive in the scene, and optionally adds TTS audio.
 
         Handles different scenarios including:
         - Composite animation events (recursively adding sub-events)
         - Drawable groups with parallel or sequential event distribution
         - Single event and drawable cases
+        - TTS audio synthesis and addition (if tts_provider and speech provided)
 
         Manages event tracking, drawable caching, and object timelines.
 
         Args:
-            event (AnimationEvent): The animation event to be added.
-            drawable (Drawable): The drawable primitive to apply the event to.
+            event: The animation event to be added. If None and audio_path/tts_provider provided, only adds audio.
+            drawable: The drawable primitive to apply the event to.
+            tts_provider: A TTS provider class or instance (e.g., edge_tts, gTTS, ElevenLabs).
+            speech: Text to synthesize when using tts_provider.
+            audio_path: Path to an existing audio file (alternative to tts_provider + speech).
+            **tts_kwargs: Additional keyword arguments passed to the TTS provider.
+
+        Examples:
+            >>> # Add animation only
+            >>> scene.add(SketchAnimation(start_time=0.0, duration=1.0), my_text)
+
+            >>> # Add TTS audio only
+            >>> scene.add(tts_provider=edge_tts, speech="Hello world")
+
+            >>> # Add both animation and TTS
+            >>> scene.add(SketchAnimation(start_time=0.0, duration=1.0), my_text, tts_provider=edge_tts, speech="Hello")
         """
+        # Handle TTS audio synthesis
+        if audio_path is not None or (tts_provider is not None and speech is not None):
+            resolved_audio_path = audio_path
+
+            if resolved_audio_path is None and tts_provider is not None and speech is not None:
+                # Synthesize audio using TTS provider
+                # Use scene-specific temp directory
+                if not hasattr(self, '_audio_temp_dir'):
+                    self._audio_temp_dir = Path(tempfile.gettempdir()) / f"handanim_scene_{id(self)}"
+                self._audio_temp_dir.mkdir(parents=True, exist_ok=True)
+
+                import hashlib
+                speech_hash = hashlib.md5(speech.encode()).hexdigest()[:8]
+                # Use event start_time or timeline cursor for unique filename per scene position
+                if event is not None:
+                    time_marker = f"{event.start_time:.2f}"
+                else:
+                    time_marker = f"{self.timeline_cursor:.2f}"
+                audio_filename = f"tts_{time_marker}_{speech_hash}.mp3"
+                resolved_audio_path = str(self._audio_temp_dir / audio_filename)
+
+                if not Path(resolved_audio_path).exists():
+                    if isinstance(tts_provider, type):
+                        provider_instance = tts_provider()
+                    else:
+                        provider_instance = tts_provider
+
+                    if hasattr(provider_instance, 'synthesize'):
+                        synthesized_path = provider_instance.synthesize(speech, resolved_audio_path, **tts_kwargs)
+                        if synthesized_path:
+                            resolved_audio_path = synthesized_path
+                    elif hasattr(tts_provider, 'Communicate'):
+                        import asyncio
+                        async def synthesize():
+                            communicate = tts_provider.Communicate(speech, **tts_kwargs)
+                            await communicate.save(resolved_audio_path)
+                        asyncio.run(synthesize())
+                    else:
+                        msg = f"TTS provider must have a 'synthesize' method or be edge-tts compatible"
+                        raise AttributeError(msg)
+
+            # Add audio track to scene
+            if event is not None:
+                start_time = event.start_time
+            else:
+                start_time = self.timeline_cursor
+
+            track = AudioTrack(
+                path=resolved_audio_path,
+                start_time=start_time,
+                volume=tts_kwargs.get('volume', 1.0),
+            )
+            self.audio_tracks.append(track)
+
+            # Auto-advance timeline to wait for audio to finish (prevents overlapping)
+            # Only advance if we're not in a grouped context
+            if not getattr(self, '_in_group', False):
+                self.timeline_cursor = max(self.timeline_cursor, track.end_time)
+
+        # If no event provided, just return after handling audio
+        if event is None:
+            return
+
         # handle the case for composite events if any
         if isinstance(event, CompositeAnimationEvent):
             for sub_event in event.events:

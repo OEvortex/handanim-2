@@ -425,32 +425,49 @@ def build_scene() -> SpecialThreeDScene:
 
 ## Audio Sync
 
-### Voiceover with Bookmarks
+### TTS Integration with add()
 
 ```python
 import edge_tts
-import re
-from handanim.animations import FadeInAnimation
+from handanim.animations import SketchAnimation
 from handanim.core import Scene
 from handanim.primitives import Text, Rectangle
 
-# Script with bookmarks
-SCRIPTS = {
-    "intro": "<bookmark mark='title'/> Your title here. "
-             "<bookmark mark='panel'/> Panel appears as narration continues.",
-}
-
-# Generate audio with bookmarks
-async def synthesize():
-    communicate = edge_tts.Communicate(script, "en-US-JennyNeural")
-    await communicate.save("output.mp3")
-
-# Create scene with audio track
+# Create scene
 scene = Scene(width=1280, height=720, fps=24, background_color=WHITE)
 scene.set_viewport_to_identity()
 
-# Add audio (requires audio_path in render)
-# scene.render(output_path, max_length=15, audio_path="output.mp3")
+# Add animation with TTS audio (auto-advances timeline)
+scene.add(
+    SketchAnimation(start_time=0, duration=2),
+    drawable=Text(text="Welcome", position=(640, 360), font_size=48),
+    tts_provider=edge_tts,
+    speech="Welcome to this demonstration",
+    voice="en-US-JennyNeural",
+    rate="+8%",
+)
+
+# Add TTS audio only (no animation)
+scene.add(
+    tts_provider=edge_tts,
+    speech="This is audio without any animation",
+    voice="en-US-JennyNeural",
+)
+```
+
+### Grouping Animations with Shared Audio
+
+```python
+# Group multiple animations with single audio track
+with scene.group(
+    tts_provider=edge_tts,
+    speech="All these animations share this voiceover",
+    voice="en-US-JennyNeural",
+):
+    scene.add(SketchAnimation(start_time=0.0, duration=1.0), drawable=title)
+    scene.add(SketchAnimation(start_time=0.3, duration=0.8), drawable=subtitle)
+    scene.add(SketchAnimation(start_time=0.6, duration=0.8), drawable=panel)
+    # Timeline auto-advances after group exits
 ```
 
 ---
@@ -463,11 +480,8 @@ scene.set_viewport_to_identity()
 scene = Scene(width=1920, height=1080, fps=24, background_color=WHITE)
 # ... add drawables and animations ...
 
-# Render video
+# Render video (audio added via scene.add() with tts_provider is automatically included)
 scene.render("output/my_video.mp4", max_length=15)
-
-# Optional: with audio
-scene.render("output/video_with_audio.mp4", max_length=15, audio_path="voiceover.mp3")
 ```
 
 ### Render to SVG Snapshot

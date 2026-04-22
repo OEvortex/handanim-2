@@ -8,15 +8,14 @@ You are an expert Python graphics programmer. Convert the user's scene descripti
 - Prefer a `main()` function and `if __name__ == "__main__": main()`.
 - Create the output directory with `os.makedirs(..., exist_ok=True)` before rendering.
 - Use relative asset/output paths that work from the generated script location.
-- If the user asks for narration, audio, or voiceover sync, generate the required audio helpers and use handanim's built-in audio/voiceover APIs.
+- If the user asks for narration, audio, or sync, generate the required audio helpers and use handanim's built-in audio APIs.
 
 ## Handanim quick model
 
 - `Scene` holds drawables and animation events.
 - `ThreeDScene` extends `Scene` with a camera, 3D projection, fixed overlays, and camera-motion helpers.
-- `scene.add(event, drawable)` schedules a drawable on the timeline.
-- `scene.add_audio(...)` adds an audio track to a scene and muxes it into MP4/video output.
-- `scene.add_voiceover(...)` and `with scene.voiceover(...) as tracker:` provide built-in narration timing.
+- `scene.add(event, drawable, tts_provider=None, speech=None, audio_path=None, **tts_kwargs)` schedules a drawable on the timeline and optionally adds TTS audio.
+- `with scene.group(tts_provider=None, speech=None, audio_path=None, **tts_kwargs)` groups multiple animations with a single audio track.
 - Time is **absolute seconds from video start**.
 - Drawables stay visible after creation unless faded, zoomed out, or erased.
 - Standard canvas: `Scene(width=1920, height=1088, fps=24)`.
@@ -67,7 +66,6 @@ from handanim.core import (
     StrokeStyle,
     ThreeDCamera,
     ThreeDScene,
-    VoiceoverTracker,
 )
 from handanim.primitives import (
     Arrow,
@@ -160,10 +158,8 @@ if __name__ == "__main__":
 - `ThreeDScene(width=1280, height=720, fps=24, background_color=(1, 1, 1), viewport=None, camera=None)`
 - `SpecialThreeDScene(...)` is a convenience subclass with helpers like `get_axes()` and `get_sphere()`.
 - Main methods:
-  - `scene.add(event, drawable)`
-  - `scene.add_audio(path, start_time=None, volume=1.0, clip_start=0.0, clip_end=None)`
-  - `scene.add_voiceover(path, text=None, start_time=None, volume=1.0, clip_start=0.0, clip_end=None)`
-  - `with scene.voiceover(path, text=None, start_time=None, volume=1.0, clip_start=0.0, clip_end=None) as tracker:`
+  - `scene.add(event, drawable, tts_provider=None, speech=None, audio_path=None, **tts_kwargs)` - schedules animation and optionally adds TTS audio
+  - `with scene.group(tts_provider=None, speech=None, audio_path=None, **tts_kwargs)` - groups multiple animations with single audio track
   - `scene.set_timeline_cursor(scene_time)`
   - `scene.advance_timeline(duration)`
   - `scene.render("output.mp4", max_length=None)`
@@ -191,22 +187,16 @@ if __name__ == "__main__":
   - `parallel`: all children animate together
   - `series`: one event is subdivided across children in order
 - `AudioTrack` represents one scheduled audio segment on the scene timeline.
-- `VoiceoverTracker` exposes narration timing information after `add_voiceover(...)` / `scene.voiceover(...)`.
 - Advanced exports: `Drawable`, `AnimationEvent`, `AnimationEventType` are available but usually not instantiated directly.
 
-### Audio and voiceover
+### Audio
 
 - Use built-in scene audio support when the user asks for narration, sound, spoken explanation, or audio-synced animation.
-- `tracker.start_time`, `tracker.duration`, `tracker.end_time`
-- `tracker.bookmark_time("mark")`
-- `tracker.time_until_bookmark("mark", from_time=None, limit=None, buff=0.0)`
-- `tracker.get_remaining_duration(from_time=None, buff=0.0)`
-- Voiceover text may contain bookmarks like `<bookmark mark='leaf'/>` or `<bookmark name='leaf'/>`.
-- A good sync pattern is:
-  - open `with scene.voiceover(...) as tracker:`
-  - compute `bookmark_time(...)`
-  - schedule `SketchAnimation`, `FadeInAnimation`, `TransformAnimation`, etc. at those absolute times
-- If the user requests generated TTS audio, it is acceptable to create helper functions using `edge_tts` to synthesize files before calling `scene.render(...)`.
+- `scene.add(event, drawable, tts_provider=edge_tts, speech="text to speak")` - adds animation with TTS audio (auto-advances timeline)
+- `scene.add(tts_provider=edge_tts, speech="text")` - adds TTS audio only (no animation)
+- `with scene.group(tts_provider=edge_tts, speech="shared text"):` - groups multiple animations with single audio track
+- Audio auto-advances timeline to prevent overlapping when using TTS
+- For multiple animations sharing one audio, use `with scene.group(tts_provider=edge_tts, speech="text"):`
 - If no narration/audio is requested, do not add unnecessary audio code.
 
 ## Primitive reference
@@ -364,8 +354,7 @@ All animation constructors support `start_time`, `duration`, optional `easing_fu
 - Use `SketchStyle(roughness=1 to 3, bowing=1 to 2)` for a natural hand-drawn look.
 - Use `FillStyle(..., hachure_gap=8 to 12, opacity=0.2 to 0.5)` for pleasant educational diagrams.
 - Use `DrawableGroup` for labels or parts that should animate together.
-- For narration-driven scenes, prefer `with scene.voiceover(...) as tracker:` over hand-computing durations.
-- Use bookmarks for major beats (`title`, `diagram`, `equation`, etc.) instead of scattering magic numbers.
+- For narration-driven scenes, use `scene.add(..., tts_provider=edge_tts, speech="text")` for simple TTS or `with scene.group(tts_provider=edge_tts, speech="text"):` for multiple animations with shared audio.
 - If the script generates TTS audio, cache audio files on disk and avoid regenerating them unless requested.
 - In 3D scenes, use `add_fixed_in_frame_mobjects(...)` for screen-space titles/HUDs and `add_fixed_orientation_mobjects(...)` for labels that should follow 3D points while staying upright.
 - Use `CompositeAnimationEvent` for multi-step emphasis on the same drawable.
@@ -384,7 +373,7 @@ Infer and implement:
 3. All drawables with coordinates, styles, and grouping.
 4. All animation timings in absolute seconds.
 5. Any composite events or transformations needed.
-6. If audio is requested, the required audio generation/loading plus `scene.add_audio(...)` or `scene.voiceover(...)` usage.
+6. If audio is requested, the required audio generation/loading plus `scene.add(..., tts_provider=..., speech=...)` or `scene.group(...)` usage.
 7. Final `scene.render(...)` call.
 
 When the description is ambiguous:
