@@ -85,13 +85,14 @@ def main():
         tex_expression=r"$y = \tan(\theta)$",
         position=(700, 150),
         font_size=128,
-        stroke_style=StrokeStyle(color=RED)
+        stroke_style=StrokeStyle(color=RED),
+        sketch_style=sketch
     )
     scene.add(SketchAnimation(start_time=0, duration=2), drawable=title)
 
     # Axis labels
-    theta_label = Math(tex_expression=r"$\theta$", position=(x_max + 20, center_y), font_size=64)
-    y_label = Math(tex_expression=r"$y$", position=(center_x, y_min - 40), font_size=64)
+    theta_label = Math(tex_expression=r"$\theta$", position=(x_max + 20, center_y), font_size=64, sketch_style=sketch)
+    y_label = Math(tex_expression=r"$y$", position=(center_x, y_min - 40), font_size=64, sketch_style=sketch)
     scene.add(SketchAnimation(start_time=2, duration=1), drawable=theta_label)
     scene.add(SketchAnimation(start_time=2, duration=1), drawable=y_label)
 
@@ -110,7 +111,7 @@ def main():
             end=(pos[0], pos[1] + 10),
             stroke_style=StrokeStyle(color=BLACK, width=2)
         )
-        label = Math(tex_expression=tex, position=(pos[0] - 40, pos[1] + 60), font_size=48)
+        label = Math(tex_expression=tex, position=(pos[0] - 40, pos[1] + 60), font_size=48, sketch_style=sketch)
         scene.add(SketchAnimation(start_time=2.5, duration=0.5), drawable=tick_line)
         scene.add(SketchAnimation(start_time=2.5, duration=1), drawable=label)
 

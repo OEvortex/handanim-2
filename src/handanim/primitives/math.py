@@ -210,7 +210,7 @@ class MathTex(Drawable):
         position: tuple[float, float],
         font_size: int = 12,
         font_name: str | None = None,
-        usetex: bool = False,
+        usetex: bool = True,
         **kwargs,
     ) -> None:
         tex_expression = kwargs.pop("tex_expression", None)

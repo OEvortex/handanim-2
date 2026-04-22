@@ -60,6 +60,7 @@ pyth_form = Math(
     font_size=128,
     stroke_style=StrokeStyle(color=BLUE, width=2),
     font_name=FONT_NAME,
+    sketch_style=SketchStyle(roughness=5),
 )
 scene.add(event=SketchAnimation(start_time=10, duration=3), drawable=pyth_form)
 
