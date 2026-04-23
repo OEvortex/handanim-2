@@ -72,7 +72,10 @@ def cairo_surface_to_numpy(surface: cairo.ImageSurface):
     h = surface.get_height()
     a = np.ndarray(shape=(h, w, 4), dtype=np.uint8, buffer=buf)
     # Cairo is ARGB, convert to a contiguous RGBA buffer for imageio.
-    return np.ascontiguousarray(a[:, :, [2, 1, 0, 3]])
+    b = a.copy()
+    b[:, :, 0] = a[:, :, 2]
+    b[:, :, 2] = a[:, :, 0]
+    return b
 
 
 def solve_quad_eqn(
