@@ -5,12 +5,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
-import tempfile
 import shutil
 import importlib
 from typing import Any
 
-from moviepy import AudioFileClip, CompositeAudioClip
+from moviepy import AudioFileClip
 
 _BOOKMARK_PATTERN = re.compile(
     r"<bookmark\s+(?:mark|name)\s*=\s*['\"](?P<mark>[^'\"]+)['\"]\s*/>"
@@ -215,104 +214,88 @@ def attach_audio_to_video(
     threads: int = 0,
 ) -> None:
     """Attach audio tracks to video using direct ffmpeg (fast, no video re-encoding)."""
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     if not audio_tracks:
         # No audio, just copy video
         shutil.copy(video_path, output_path)
         return
 
+    def _format_filter_float(value: float) -> str:
+        return f"{float(value):.6f}".rstrip("0").rstrip(".")
+
+    def _build_audio_filter() -> str:
+        filter_parts: list[str] = []
+        audio_labels: list[str] = []
+
+        for index, track in enumerate(audio_tracks):
+            input_index = index + 1
+            label = f"a{index}"
+            filters = []
+            trim_parts = [f"start={_format_filter_float(track.clip_start)}"]
+            if track.clip_end is not None:
+                trim_parts.append(f"end={_format_filter_float(track.clip_end)}")
+            filters.append(f"atrim={':'.join(trim_parts)}")
+            filters.append("asetpts=PTS-STARTPTS")
+            if track.volume != 1.0:
+                filters.append(f"volume={_format_filter_float(track.volume)}")
+            delay_ms = max(int(round(track.start_time * 1000)), 0)
+            if delay_ms:
+                filters.append(f"adelay=delays={delay_ms}:all=1")
+            filter_parts.append(f"[{input_index}:a]{','.join(filters)}[{label}]")
+            audio_labels.append(f"[{label}]")
+
+        duration_filter = f"atrim=end={_format_filter_float(duration)},asetpts=PTS-STARTPTS"
+        if len(audio_labels) == 1:
+            filter_parts.append(f"{audio_labels[0]}{duration_filter}[aout]")
+        else:
+            joined_labels = "".join(audio_labels)
+            filter_parts.append(
+                f"{joined_labels}amix=inputs={len(audio_labels)}:"
+                f"duration=longest:normalize=0,{duration_filter}[aout]"
+            )
+
+        return ";".join(filter_parts)
+
     # Try to use ffmpeg for fast audio attachment (no video re-encoding)
     ffmpeg_path = _ensure_ffmpeg_available()
     
     if ffmpeg_path:
-        # Use moviepy only to mix audio tracks, then use ffmpeg to attach without re-encoding video
-        moviepy_audio_clips = []
-        composite_audio = None
-        temp_audio_path = None
-        
-        try:
-            # Mix audio tracks using moviepy
-            moviepy_audio_clips = [track.to_moviepy_clip() for track in audio_tracks]
-            composite_audio = CompositeAudioClip(moviepy_audio_clips)
-            composite_audio.fps = getattr(composite_audio, "fps", None) or 44_100
-            if hasattr(composite_audio, "with_duration"):
-                composite_audio = composite_audio.with_duration(duration)
-            else:
-                composite_audio = composite_audio.set_duration(duration)
+        cmd = [
+            ffmpeg_path,
+            "-y",
+            "-i",
+            video_path,
+        ]
+        for track in audio_tracks:
+            cmd.extend(["-i", track.path])
 
-            # Write mixed audio to temporary file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
-                temp_audio_path = temp_audio.name
-            
-            composite_audio.write_audiofile(temp_audio_path, fps=44_100, logger=None, codec='pcm_s16le')
-            
-            # Use ffmpeg to combine video and audio WITHOUT re-encoding video
-            cmd = [
-                ffmpeg_path,
-                "-y",  # Overwrite output
-                "-i", video_path,  # Video input
-                "-i", temp_audio_path,  # Audio input
-                "-c:v", "copy",  # Copy video stream (no re-encoding) - THIS IS THE KEY OPTIMIZATION
-                "-c:a", "aac",  # Encode audio to AAC
-                "-map", "0:v:0",  # Use video from first input
-                "-map", "1:a:0",  # Use audio from second input
-                "-shortest",  # Use shortest duration
+        cmd.extend(
+            [
+                "-filter_complex",
+                _build_audio_filter(),
+                "-map",
+                "0:v:0",
+                "-map",
+                "[aout]",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                "-t",
+                _format_filter_float(duration),
             ]
-            
-            if threads > 0:
-                cmd.extend(["-threads", str(threads)])
-            
-            cmd.append(output_path)
-            
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-            
-        finally:
-            if composite_audio is not None and hasattr(composite_audio, "close"):
-                composite_audio.close()
-            for clip in moviepy_audio_clips:
-                clip.close()
-            if temp_audio_path and Path(temp_audio_path).exists():
-                Path(temp_audio_path).unlink()
-    else:
-        # Fallback to moviepy if ffmpeg not available (slower but works)
-        from moviepy import VideoFileClip
-        
-        moviepy_audio_clips = []
-        composite_audio = None
-        video_clip = None
-        final_clip = None
+        )
 
-        try:
-            moviepy_audio_clips = [track.to_moviepy_clip() for track in audio_tracks]
-            composite_audio = CompositeAudioClip(moviepy_audio_clips)
-            composite_audio.fps = getattr(composite_audio, "fps", None) or 44_100
-            if hasattr(composite_audio, "with_duration"):
-                composite_audio = composite_audio.with_duration(duration)
-            else:
-                composite_audio = composite_audio.set_duration(duration)
+        if threads > 0:
+            cmd.extend(["-threads", str(threads)])
 
-            video_clip = VideoFileClip(video_path)
-            if hasattr(video_clip, "with_audio"):
-                final_clip = video_clip.with_audio(composite_audio)
-            else:
-                final_clip = video_clip.set_audio(composite_audio)
-            
-            # Build ffmpeg params for multithreading
-            ffmpeg_params = ["-threads", str(threads)] if threads > 0 else None
-            final_clip.write_videofile(
-                output_path,
-                fps=fps,
-                codec="libx264",
-                audio_codec="aac",
-                audio_fps=44_100,
-                ffmpeg_params=ffmpeg_params,
-                logger=None,
-            )
-        finally:
-            if final_clip is not None:
-                final_clip.close()
-            if video_clip is not None:
-                video_clip.close()
-            if composite_audio is not None and hasattr(composite_audio, "close"):
-                composite_audio.close()
-            for clip in moviepy_audio_clips:
-                clip.close()
+        cmd.append(output_path)
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return
+
+    msg = "ffmpeg is required to attach audio without re-encoding the rendered video"
+    raise RuntimeError(msg)

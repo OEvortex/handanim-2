@@ -1,6 +1,7 @@
 from .bounce import BounceInAnimation, BounceOutAnimation
 from .effects import FlashAnimation, JitterAnimation, PulseAnimation, WiggleAnimation
 from .fade import FadeInAnimation, FadeOutAnimation
+from .static import StaticAnimation
 from .morph import MorphAnimation, ReplacementTransformAnimation, TransformAnimation
 from .rotate import RotateAnimation, SpinAnimation
 from .scale import GrowFromCenterAnimation, ScaleFromPointAnimation, ShrinkToPointAnimation
@@ -83,6 +84,7 @@ __all__ = [
     "SlideInAnimation",
     "SlideOutAnimation",
     "SpinAnimation",
+    "StaticAnimation",
     "Swap",
     "Transform",
     "TransformAnimations",

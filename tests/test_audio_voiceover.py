@@ -3,8 +3,11 @@ from pathlib import Path
 
 import pytest
 
+from handanim.animations import FadeOutAnimation, SketchAnimation
 import handanim.core.scene as scene_module
 from handanim.core import AudioTrack, Scene
+from handanim.core.drawable import DrawableGroup
+from handanim.primitives import Text
 
 
 def _write_test_wav(path: Path, duration_seconds: float, sample_rate: int = 8_000) -> None:
@@ -60,6 +63,73 @@ def test_voiceover_context_advances_cursor(tmp_path) -> None:
     assert scene.timeline_cursor == pytest.approx(1.25)
     blank_timeline = scene.create_event_timeline()
     assert len(blank_timeline) == 11
+
+
+def test_group_cursor_extends_to_audio_added_inside_group(tmp_path) -> None:
+    audio_path = tmp_path / "group_audio.wav"
+    _write_test_wav(audio_path, duration_seconds=1.25)
+
+    scene = Scene(fps=8)
+    title = Text("Hello", position=(0, 0))
+
+    with scene.group():
+        scene.add(SketchAnimation(start_time=0.0, duration=0.5), title)
+        scene.add_audio(str(audio_path))
+
+    assert scene.timeline_cursor == pytest.approx(1.25)
+
+
+def test_group_keeps_last_visual_active_until_audio_ends(tmp_path) -> None:
+    audio_path = tmp_path / "group_audio.wav"
+    _write_test_wav(audio_path, duration_seconds=2.0)
+
+    scene = Scene(fps=8)
+    title = Text("Hello", position=(0, 0))
+    subtitle = Text("World", position=(0, 20))
+
+    with scene.group():
+        scene.add(SketchAnimation(start_time=0.0, duration=0.1), title)
+        title_fade_out = FadeOutAnimation(start_time=0.5, duration=0.5)
+        scene.add(title_fade_out, title)
+        scene.add(SketchAnimation(start_time=1.0, duration=0.1), subtitle)
+        subtitle_fade_out = FadeOutAnimation(start_time=1.2, duration=0.2)
+        scene.add(subtitle_fade_out, subtitle)
+        scene.add_audio(str(audio_path))
+
+    assert title_fade_out.start_time == pytest.approx(1.5)
+    assert title_fade_out.end_time == pytest.approx(2.0)
+    assert subtitle_fade_out.start_time == pytest.approx(1.8)
+    assert subtitle_fade_out.end_time == pytest.approx(2.0)
+    assert title.id in scene.get_active_objects(0.25)
+    assert title.id in scene.get_active_objects(1.25)
+    assert subtitle.id in scene.get_active_objects(1.6)
+    assert title.id not in scene.get_active_objects(2.0)
+    assert subtitle.id not in scene.get_active_objects(2.0)
+
+
+def test_group_shifts_fade_out_for_parallel_drawable_group(tmp_path) -> None:
+    audio_path = tmp_path / "group_audio.wav"
+    _write_test_wav(audio_path, duration_seconds=2.0)
+
+    scene = Scene(fps=8)
+    hello = Text("Hello", position=(0, 0))
+    world = Text("World", position=(0, 20))
+    group_drawable = DrawableGroup([hello, world])
+
+    with scene.group():
+        scene.add(SketchAnimation(start_time=0.0, duration=0.1), group_drawable)
+        fade_out = FadeOutAnimation(start_time=0.5, duration=0.5)
+        scene.add(fade_out, group_drawable)
+        scene.add_audio(str(audio_path))
+
+    assert fade_out.start_time == pytest.approx(1.5)
+    assert fade_out.end_time == pytest.approx(2.0)
+    assert scene.object_timelines[hello.id][-1] == pytest.approx(2.0)
+    assert scene.object_timelines[world.id][-1] == pytest.approx(2.0)
+    assert hello.id in scene.get_active_objects(1.6)
+    assert world.id in scene.get_active_objects(1.6)
+    assert hello.id not in scene.get_active_objects(2.0)
+    assert world.id not in scene.get_active_objects(2.0)
 
 
 def test_render_with_audio_uses_muxer_and_infers_length(tmp_path, monkeypatch) -> None:

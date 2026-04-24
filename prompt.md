@@ -425,13 +425,26 @@ def build_scene() -> SpecialThreeDScene:
 
 ## Audio Sync
 
-### TTS Integration with add()
+### TTS Integration with @tts_speech Decorator
+
+The scene uses a decorator pattern for TTS providers. Create a provider class with a `@tts_speech` decorated `synthesize` method:
 
 ```python
-import edge_tts
+from handanim.core.scene import tts_speech
 from handanim.animations import SketchAnimation
 from handanim.core import Scene
-from handanim.primitives import Text, Rectangle
+from handanim.primitives import Text
+import edge_tts
+import asyncio
+
+# Create your TTS provider with decorated method
+class EdgeTTSProvider:
+    @tts_speech
+    def synthesize(self, speech: str, output_path: str, **kwargs) -> str:
+        """Synthesize speech using edge-tts."""
+        communicate = edge_tts.Communicate(speech, **kwargs)
+        asyncio.run(communicate.save(output_path))
+        return output_path
 
 # Create scene
 scene = Scene(width=1280, height=720, fps=24, background_color=WHITE)
@@ -441,7 +454,7 @@ scene.set_viewport_to_identity()
 scene.add(
     SketchAnimation(start_time=0, duration=2),
     drawable=Text(text="Welcome", position=(640, 360), font_size=48),
-    tts_provider=edge_tts,
+    tts_provider=EdgeTTSProvider(),
     speech="Welcome to this demonstration",
     voice="en-US-JennyNeural",
     rate="+8%",
@@ -449,9 +462,40 @@ scene.add(
 
 # Add TTS audio only (no animation)
 scene.add(
-    tts_provider=edge_tts,
+    tts_provider=EdgeTTSProvider(),
     speech="This is audio without any animation",
     voice="en-US-JennyNeural",
+)
+```
+
+### Using Other TTS Providers (OpenAI, ElevenLabs, etc.)
+
+```python
+from handanim.core.scene import tts_speech
+
+class OpenAITTSProvider:
+    def __init__(self, api_key: str):
+        from openai import OpenAI
+        self.client = OpenAI(api_key=api_key)
+    
+    @tts_speech
+    def synthesize(self, speech: str, output_path: str, **kwargs) -> str:
+        """Synthesize speech using OpenAI."""
+        response = self.client.audio.speech.create(
+            input=speech,
+            model=kwargs.get("model", "tts-1"),
+            voice=kwargs.get("voice", "alloy"),
+        )
+        response.stream_to_file(output_path)
+        return output_path
+
+# Use in scene
+scene.add(
+    SketchAnimation(start_time=0, duration=2),
+    drawable=Text(text="Hello", position=(640, 360), font_size=48),
+    tts_provider=OpenAITTSProvider(api_key="your-key"),
+    speech="Hello from OpenAI TTS",
+    voice="alloy",
 )
 ```
 
@@ -460,7 +504,7 @@ scene.add(
 ```python
 # Group multiple animations with single audio track
 with scene.group(
-    tts_provider=edge_tts,
+    tts_provider=EdgeTTSProvider(),
     speech="All these animations share this voiceover",
     voice="en-US-JennyNeural",
 ):
@@ -468,6 +512,21 @@ with scene.group(
     scene.add(SketchAnimation(start_time=0.3, duration=0.8), drawable=subtitle)
     scene.add(SketchAnimation(start_time=0.6, duration=0.8), drawable=panel)
     # Timeline auto-advances after group exits
+```
+
+### Using Pre-existing Audio Files
+
+Alternatively, pass `audio_path` directly without TTS:
+
+```python
+scene.add(
+    SketchAnimation(start_time=0, duration=2),
+    drawable=Text(text="Welcome", position=(640, 360), font_size=48),
+    audio_path="path/to/audio.mp3",
+)
+
+with scene.group(audio_path="path/to/audio.mp3"):
+    scene.add(SketchAnimation(start_time=0.0, duration=1.0), drawable=title)
 ```
 
 ---

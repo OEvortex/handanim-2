@@ -1,5 +1,7 @@
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
+import functools
+import hashlib
 import importlib
 import os
 from pathlib import Path
@@ -7,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 import cairo
 import imageio.v2 as imageio
@@ -24,6 +26,41 @@ from .draw_ops import OpsSet
 from .drawable import Drawable, DrawableCache, DrawableGroup, EmptyDrawable, FrozenDrawable
 from .utils import cairo_surface_to_numpy
 from .viewport import Viewport
+
+
+def tts_speech(func: Callable) -> Callable:
+    """
+    Decorator for TTS speech synthesis methods.
+    
+    Wraps the provider's speech synthesis with caching and retry logic.
+    The decorated method should take (speech: str, output_path: str, **kwargs) 
+    and return the output path or None.
+    
+    Usage:
+        @tts_speech
+        def synthesize(self, speech: str, output_path: str, **kwargs) -> str | None:
+            # Your TTS implementation
+            return output_path
+    """
+    @functools.wraps(func)
+    def wrapper(self, speech: str, output_path: str, **kwargs) -> str | None:
+        # Check cache first
+        if Path(output_path).exists():
+            return output_path
+        
+        # Retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                result = func(self, speech, output_path, **kwargs)
+                return result
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                import time
+                time.sleep(2 ** attempt)
+    
+    return wrapper
 
 
 class Scene:
@@ -256,6 +293,21 @@ class Scene:
             unit_scale=True,
         )
 
+    @contextmanager
+    def _tqdm_step(self, desc: str, *, colour: str = "green"):
+        """Show progress for a single blocking step such as TTS or muxing."""
+        with tqdm(
+            desc=desc,
+            total=1,
+            dynamic_ncols=True,
+            colour=colour,
+            bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}]",
+        ) as pbar:
+            try:
+                yield
+            finally:
+                pbar.update(1)
+
     def _get_encoder_codec_and_params(self) -> tuple[str, list[str]]:
         """
         Get the appropriate encoder codec and FFmpeg parameters based on render_device.
@@ -482,58 +534,54 @@ class Scene:
         The timeline won't auto-advance until the group exits.
 
         Args:
-            tts_provider: TTS provider for audio synthesis.
-            speech: Text to synthesize.
-            audio_path: Path to existing audio file.
-            **tts_kwargs: Additional TTS parameters.
+            tts_provider: TTS provider instance with a decorated speech synthesis method.
+            speech: Text to synthesize when using tts_provider.
+            audio_path: Path to existing audio file (alternative to tts_provider + speech).
+            **tts_kwargs: Additional keyword arguments passed to the TTS provider.
 
         Yields:
             AudioTrack if audio was added, None otherwise.
 
         Example:
-            >>> with scene.group(tts_provider=edge_tts, speech="Welcome to the demo"):
+            >>> # Client decorates their provider's method with @tts_speech
+            >>> class MyTTS:
+            ...     @tts_speech
+            ...     def synthesize(self, speech: str, output_path: str, **kwargs) -> str:
+            ...         # Implementation
+            ...         return output_path
+            >>> 
+            >>> with scene.group(tts_provider=MyTTS(), speech="Welcome to the demo"):
             ...     scene.add(SketchAnimation(start_time=0.0, duration=1.0), title)
-            ...     scene.add(SketchAnimation(start_time=0.5, duration=1.0), subtitle)
-            ...     # Both animations share the same audio
         """
         group_start_cursor = self.timeline_cursor
         self._in_group = True
         added_track = None
+        group_events_before = len(self.events)
+        group_audio_tracks_before = len(self.audio_tracks)
 
         # Handle audio synthesis at group start
         if audio_path is not None or (tts_provider is not None and speech is not None):
             resolved_audio_path = audio_path
 
             if resolved_audio_path is None and tts_provider is not None and speech is not None:
-                # Synthesize audio using TTS provider
+                # Synthesize audio using TTS provider's decorated method
                 if not hasattr(self, '_audio_temp_dir'):
                     self._audio_temp_dir = Path(tempfile.gettempdir()) / f"handanim_scene_{id(self)}"
                 self._audio_temp_dir.mkdir(parents=True, exist_ok=True)
 
-                import hashlib
                 speech_hash = hashlib.md5(speech.encode()).hexdigest()[:8]
                 time_marker = f"{group_start_cursor:.2f}"
                 audio_filename = f"group_{time_marker}_{speech_hash}.mp3"
                 resolved_audio_path = str(self._audio_temp_dir / audio_filename)
 
-                if not Path(resolved_audio_path).exists():
-                    if isinstance(tts_provider, type):
-                        provider_instance = tts_provider()
-                    else:
-                        provider_instance = tts_provider
-
-                    if hasattr(provider_instance, 'synthesize'):
-                        synthesized_path = provider_instance.synthesize(speech, resolved_audio_path, **tts_kwargs)
+                with self._tqdm_step("Synthesizing speech...", colour="magenta"):
+                    # Call the provider's decorated speech synthesis method
+                    if hasattr(tts_provider, 'synthesize'):
+                        synthesized_path = tts_provider.synthesize(speech, resolved_audio_path, **tts_kwargs)
                         if synthesized_path:
                             resolved_audio_path = synthesized_path
-                    elif hasattr(tts_provider, 'Communicate'):
-                        import asyncio
-                        async def synthesize():
-                            communicate = tts_provider.Communicate(speech, **tts_kwargs)
-                            await communicate.save(resolved_audio_path)
-                        asyncio.run(synthesize())
                     else:
-                        msg = f"TTS provider must have a 'synthesize' method or be edge-tts compatible"
+                        msg = f"TTS provider must have a 'synthesize' method decorated with @tts_speech"
                         raise AttributeError(msg)
 
             # Add audio track at group start
@@ -549,14 +597,62 @@ class Scene:
             yield added_track
         finally:
             self._in_group = False
+            
+            # Get events added during this group
+            group_events = self.events[group_events_before:]
+            group_audio_tracks = self.audio_tracks[group_audio_tracks_before:]
+            group_end_times: list[float] = []
+            if group_events:
+                group_visual_end = max(event[0].end_time for event in group_events)
+                group_end_times.append(group_visual_end)
+            if group_audio_tracks:
+                group_audio_end = max(track.end_time for track in group_audio_tracks)
+                group_end_times.append(group_audio_end)
+                if group_events and group_audio_end > group_visual_end:
+                    self._hold_group_visuals_until_audio_end(group_events, group_audio_end)
+            
             # Advance timeline to after group ends
-            if added_track is not None:
-                self.timeline_cursor = max(self.timeline_cursor, added_track.end_time)
+            if group_end_times:
+                self.timeline_cursor = max(self.timeline_cursor, max(group_end_times))
+
+    def _hold_group_visuals_until_audio_end(
+        self,
+        group_events: list[tuple[AnimationEvent, str]],
+        group_audio_end: float,
+    ) -> None:
+        """Keep every drawable touched by the group visible until its audio ends."""
+        tolerance = max(1.0 / max(self.fps, 1), 1e-6)
+        # Cache the ORIGINAL end_time per event.id so that when a single event
+        # is shared across multiple drawables (e.g. a FadeOutAnimation applied
+        # to a parallel DrawableGroup), subsequent iterations can still locate
+        # the stale entry in each element's object_timelines after the event
+        # itself has already been shifted.
+        original_end_times: dict[str, float] = {}
+
+        for event, drawable_id in group_events:
+            if event.type is not AnimationEventType.DELETION:
+                continue
+
+            if event.id in original_end_times:
+                old_end_time = original_end_times[event.id]
             else:
-                # If no audio, advance based on the last event in the group
-                if self.events:
-                    last_event_end = max(event[0].end_time for event in self.events)
-                    self.timeline_cursor = max(self.timeline_cursor, last_event_end)
+                old_end_time = event.end_time
+                if old_end_time >= group_audio_end - tolerance:
+                    continue
+                original_end_times[event.id] = old_end_time
+                duration = max(event.duration, 0.0)
+                event.start_time = max(group_audio_end - duration, 0.0)
+                event.end_time = group_audio_end
+                event.duration = event.end_time - event.start_time
+
+            timeline = self.object_timelines.get(drawable_id)
+            if timeline is None:
+                continue
+            for index, time in enumerate(timeline):
+                if abs(time - old_end_time) <= tolerance:
+                    timeline[index] = group_audio_end
+                    break
+            timeline.sort()
 
     def add(
         self,
@@ -581,7 +677,7 @@ class Scene:
         Args:
             event: The animation event to be added. If None and audio_path/tts_provider provided, only adds audio.
             drawable: The drawable primitive to apply the event to.
-            tts_provider: A TTS provider class or instance (e.g., edge_tts, gTTS, ElevenLabs).
+            tts_provider: TTS provider instance with a decorated speech synthesis method.
             speech: Text to synthesize when using tts_provider.
             audio_path: Path to an existing audio file (alternative to tts_provider + speech).
             **tts_kwargs: Additional keyword arguments passed to the TTS provider.
@@ -591,23 +687,21 @@ class Scene:
             >>> scene.add(SketchAnimation(start_time=0.0, duration=1.0), my_text)
 
             >>> # Add TTS audio only
-            >>> scene.add(tts_provider=edge_tts, speech="Hello world")
+            >>> scene.add(tts_provider=MyTTS(), speech="Hello world")
 
             >>> # Add both animation and TTS
-            >>> scene.add(SketchAnimation(start_time=0.0, duration=1.0), my_text, tts_provider=edge_tts, speech="Hello")
+            >>> scene.add(SketchAnimation(start_time=0.0, duration=1.0), my_text, tts_provider=MyTTS(), speech="Hello")
         """
         # Handle TTS audio synthesis
         if audio_path is not None or (tts_provider is not None and speech is not None):
             resolved_audio_path = audio_path
 
             if resolved_audio_path is None and tts_provider is not None and speech is not None:
-                # Synthesize audio using TTS provider
-                # Use scene-specific temp directory
+                # Synthesize audio using TTS provider's decorated method
                 if not hasattr(self, '_audio_temp_dir'):
                     self._audio_temp_dir = Path(tempfile.gettempdir()) / f"handanim_scene_{id(self)}"
                 self._audio_temp_dir.mkdir(parents=True, exist_ok=True)
 
-                import hashlib
                 speech_hash = hashlib.md5(speech.encode()).hexdigest()[:8]
                 # Use event start_time or timeline cursor for unique filename per scene position
                 if event is not None:
@@ -617,24 +711,14 @@ class Scene:
                 audio_filename = f"tts_{time_marker}_{speech_hash}.mp3"
                 resolved_audio_path = str(self._audio_temp_dir / audio_filename)
 
-                if not Path(resolved_audio_path).exists():
-                    if isinstance(tts_provider, type):
-                        provider_instance = tts_provider()
-                    else:
-                        provider_instance = tts_provider
-
-                    if hasattr(provider_instance, 'synthesize'):
-                        synthesized_path = provider_instance.synthesize(speech, resolved_audio_path, **tts_kwargs)
+                with self._tqdm_step("Synthesizing speech...", colour="magenta"):
+                    # Call the provider's decorated speech synthesis method
+                    if hasattr(tts_provider, 'synthesize'):
+                        synthesized_path = tts_provider.synthesize(speech, resolved_audio_path, **tts_kwargs)
                         if synthesized_path:
                             resolved_audio_path = synthesized_path
-                    elif hasattr(tts_provider, 'Communicate'):
-                        import asyncio
-                        async def synthesize():
-                            communicate = tts_provider.Communicate(speech, **tts_kwargs)
-                            await communicate.save(resolved_audio_path)
-                        asyncio.run(synthesize())
                     else:
-                        msg = f"TTS provider must have a 'synthesize' method or be edge-tts compatible"
+                        msg = f"TTS provider must have a 'synthesize' method decorated with @tts_speech"
                         raise AttributeError(msg)
 
             # Add audio track to scene
@@ -1140,6 +1224,7 @@ class Scene:
             max_length (Optional[float], optional): Maximum duration of the animation. Defaults to None.
             threads (int, optional): Number of threads for ffmpeg encoding. Use 0 for all cores. Defaults to 0.
         """
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         # calculate the events
         resolved_max_length = (
             self._infer_default_length() if max_length is None else float(max_length)
@@ -1157,46 +1242,47 @@ class Scene:
                 temp_output_path = Path(temp_file.name)
             render_target = str(temp_output_path)
 
-        if output_file_ext.lower() == "gif":
-            tqdm_desc = "Rendering GIF..."
-            frame_duration_ms = 1000 / self.fps  # duration per frame in milliseconds
-            write_obj = imageio.get_writer(render_target, mode="I", duration=frame_duration_ms)
-        else:
-            effective_render_device = self.render_device
-            tqdm_desc = "Rendering video..."
-            if effective_render_device == "gpu" and self._gpu_encoder_is_available():
-                tqdm_desc += " (GPU accelerated)"
-            elif effective_render_device == "gpu":
-                effective_render_device = "cpu"
-                tqdm_desc += " (GPU unavailable, falling back to CPU)"
-            
-            # Get encoder codec and params based on render_device
-            original_render_device = self.render_device
-            self.render_device = effective_render_device
-            codec, ffmpeg_params = self._get_encoder_codec_and_params()
-            self.render_device = original_render_device
-            
-            # Override threads parameter if not using GPU (GPU doesn't use CPU threads the same way)
-            if effective_render_device == "gpu":
-                # Find and replace the threads value in ffmpeg_params
-                for i, param in enumerate(ffmpeg_params):
-                    if param == "-threads" and i + 1 < len(ffmpeg_params):
-                        ffmpeg_params[i + 1] = "0"  # Let GPU encoder decide
-                        break
-            elif threads > 0:
-                # Override threads for CPU encoding
-                for i, param in enumerate(ffmpeg_params):
-                    if param == "-threads" and i + 1 < len(ffmpeg_params):
-                        ffmpeg_params[i + 1] = str(threads)
-                        break
-            
-            write_obj = imageio.get_writer(
-                render_target,
-                fps=self.fps,
-                codec=codec,
-                macro_block_size=1,
-                ffmpeg_params=ffmpeg_params,
-            )
+        with self._tqdm_step("Preparing render...", colour="blue"):
+            if output_file_ext.lower() == "gif":
+                tqdm_desc = "Rendering GIF..."
+                frame_duration_ms = 1000 / self.fps  # duration per frame in milliseconds
+                write_obj = imageio.get_writer(render_target, mode="I", duration=frame_duration_ms)
+            else:
+                effective_render_device = self.render_device
+                tqdm_desc = "Rendering video..."
+                if effective_render_device == "gpu" and self._gpu_encoder_is_available():
+                    tqdm_desc += " (GPU accelerated)"
+                elif effective_render_device == "gpu":
+                    effective_render_device = "cpu"
+                    tqdm_desc += " (GPU unavailable, falling back to CPU)"
+
+                # Get encoder codec and params based on render_device
+                original_render_device = self.render_device
+                self.render_device = effective_render_device
+                codec, ffmpeg_params = self._get_encoder_codec_and_params()
+                self.render_device = original_render_device
+
+                # Override threads parameter if not using GPU (GPU doesn't use CPU threads the same way)
+                if effective_render_device == "gpu":
+                    # Find and replace the threads value in ffmpeg_params
+                    for i, param in enumerate(ffmpeg_params):
+                        if param == "-threads" and i + 1 < len(ffmpeg_params):
+                            ffmpeg_params[i + 1] = "0"  # Let GPU encoder decide
+                            break
+                elif threads > 0:
+                    # Override threads for CPU encoding
+                    for i, param in enumerate(ffmpeg_params):
+                        if param == "-threads" and i + 1 < len(ffmpeg_params):
+                            ffmpeg_params[i + 1] = str(threads)
+                            break
+
+                write_obj = imageio.get_writer(
+                    render_target,
+                    fps=self.fps,
+                    codec=codec,
+                    macro_block_size=1,
+                    ffmpeg_params=ffmpeg_params,
+                )
 
         try:
             with write_obj as writer:
@@ -1208,6 +1294,8 @@ class Scene:
                 for frame_index, (static_frame_ops, dynamic_frame_ops) in enumerate(
                     self._tqdm_bar(frame_iter, desc=tqdm_desc, total=frame_total)
                 ):
+                    if frame_index == 0:
+                        tqdm.write("Rendering first frame...")
                     if static_surface is None or static_frame_ops is not last_static_opsset:
                         static_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, self.width, self.height)
                         static_ctx = cairo.Context(static_surface)
@@ -1254,11 +1342,13 @@ class Scene:
                 # Show progress for audio attachment
                 with tqdm(
                     desc="Attaching audio...",
-                    total=1,
+                    total=2,
                     dynamic_ncols=True,
                     colour="yellow",
                     bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
                 ) as pbar:
+                    pbar.set_postfix_str("starting ffmpeg")
+                    pbar.update(1)
                     attach_audio_to_video(
                         video_path=str(temp_output_path),
                         output_path=output_path,
@@ -1267,6 +1357,7 @@ class Scene:
                         fps=self.fps,
                         threads=threads,
                     )
+                    pbar.set_postfix_str("done")
                     pbar.update(1)
         finally:
             if temp_output_path is not None and temp_output_path.exists():
