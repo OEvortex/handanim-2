@@ -514,6 +514,8 @@ with scene.group(
     # Timeline auto-advances after group exits
 ```
 
+**Note**: All TTS synthesis operations (both in `scene.add()` and `scene.group()`) share a single progress bar for better visibility.
+
 ### Using Pre-existing Audio Files
 
 Alternatively, pass `audio_path` directly without TTS:
@@ -531,6 +533,66 @@ with scene.group(audio_path="path/to/audio.mp3"):
 
 ---
 
+## Duration and Timestamp Tracking
+
+The scene automatically tracks duration and time samples for each group, enabling precise video timing control.
+
+### Getting Total Duration
+
+```python
+# Get total video duration (auto-calculated from groups and events)
+total_duration = scene.get_total_duration()
+print(f"Total video duration: {total_duration:.2f} seconds")
+```
+
+### Getting Group Information
+
+```python
+# Get information about all scene groups
+group_info = scene.get_group_info()
+
+for group_id, info in group_info.items():
+    print(f"{group_id}:")
+    print(f"  Start Time: {info['start_time']:.2f}s")
+    print(f"  End Time:   {info['end_time']:.2f}s")
+    print(f"  Duration:   {info['duration']:.2f}s")
+    print(f"  Has Audio:  {info['has_audio']}")
+```
+
+### Example: Display Video Timeline
+
+```python
+def main():
+    scene = Scene(width=1920, height=1080, fps=24, background_color=WHITE)
+    
+    # Add your scenes
+    add_scene_1(scene)
+    add_scene_2(scene)
+    add_scene_3(scene)
+    
+    # Display duration and timestamp information
+    print("\n" + "="*70)
+    print("VIDEO DURATION AND TIMESTAMPS")
+    print("="*70)
+    print(f"Total Video Duration: {scene.get_total_duration():.2f} seconds")
+    print("-"*70)
+    
+    group_info = scene.get_group_info()
+    scene_names = ["Scene 1", "Scene 2", "Scene 3"]
+    
+    for i, (group_id, info) in enumerate(group_info.items()):
+        if i < len(scene_names):
+            print(f"{scene_names[i]}:")
+            print(f"  Start Time: {info['start_time']:.2f}s")
+            print(f"  End Time:   {info['end_time']:.2f}s")
+            print(f"  Duration:   {info['duration']:.2f}s")
+            print("-"*70)
+    
+    scene.render("output/video.mp4")
+```
+
+---
+
 ## Rendering
 
 ### Render to Video
@@ -540,6 +602,10 @@ scene = Scene(width=1920, height=1080, fps=24, background_color=WHITE)
 # ... add drawables and animations ...
 
 # Render video (audio added via scene.add() with tts_provider is automatically included)
+# If max_length is not specified, it auto-calculates from groups/events
+scene.render("output/my_video.mp4")
+
+# Or specify max_length manually
 scene.render("output/my_video.mp4", max_length=15)
 ```
 
@@ -625,3 +691,4 @@ Before returning:
 - [ ] Called `scene.render()` at the end
 - [ ] Used proper StrokeStyle/FillStyle/SketchStyle objects
 - [ ] Used proper color imports from `handanim.stylings.color`
+- [ ] Considered using `scene.get_group_info()` and `scene.get_total_duration()` for timing control

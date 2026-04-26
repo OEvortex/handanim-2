@@ -133,6 +133,11 @@ class Scene:
         self._event_progress_cache: dict[tuple[str, int], list[tuple[AnimationEvent, float]]] = {}
         # NEW: Cache for fully composed frame opssets (drawable_id, frame_index) -> OpsSet
         self._frame_opsset_cache: dict[tuple[str, int], OpsSet] = {}
+        # Group tracking: stores duration and time sample for each scene group
+        self._group_info: dict[str, dict[str, float]] = {}
+        # Shared TTS progress bar for all speech synthesis
+        self._tts_pbar: tqdm | None = None
+        self._pending_tts_count = 0
 
         if viewport is not None:
             self.viewport = viewport
@@ -292,6 +297,38 @@ class Scene:
             unit="f",
             unit_scale=True,
         )
+
+    def _init_tts_pbar(self, total: int):
+        """Initialize the shared TTS progress bar."""
+        if self._tts_pbar is None:
+            self._tts_pbar = tqdm(
+                total=total,
+                desc="Synthesizing speech",
+                dynamic_ncols=True,
+                colour="magenta",
+                bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+            )
+            self._pending_tts_count = total
+        else:
+            # If bar already exists, just increment the pending count
+            self._pending_tts_count += 1
+            self._tts_pbar.total = self._pending_tts_count
+
+    def _update_tts_pbar(self):
+        """Update the shared TTS progress bar."""
+        if self._tts_pbar is not None:
+            self._tts_pbar.update(1)
+            self._pending_tts_count -= 1
+            if self._pending_tts_count <= 0:
+                self._tts_pbar.close()
+                self._tts_pbar = None
+
+    def _close_tts_pbar(self):
+        """Close the shared TTS progress bar."""
+        if self._tts_pbar is not None:
+            self._tts_pbar.close()
+            self._tts_pbar = None
+            self._pending_tts_count = 0
 
     @contextmanager
     def _tqdm_step(self, desc: str, *, colour: str = "green"):
@@ -558,6 +595,7 @@ class Scene:
         added_track = None
         group_events_before = len(self.events)
         group_audio_tracks_before = len(self.audio_tracks)
+        group_id = f"group_{len(self._group_info)}"
 
         # Handle audio synthesis at group start
         if audio_path is not None or (tts_provider is not None and speech is not None):
@@ -574,15 +612,17 @@ class Scene:
                 audio_filename = f"group_{time_marker}_{speech_hash}.mp3"
                 resolved_audio_path = str(self._audio_temp_dir / audio_filename)
 
-                with self._tqdm_step("Synthesizing speech...", colour="magenta"):
-                    # Call the provider's decorated speech synthesis method
-                    if hasattr(tts_provider, 'synthesize'):
-                        synthesized_path = tts_provider.synthesize(speech, resolved_audio_path, **tts_kwargs)
-                        if synthesized_path:
-                            resolved_audio_path = synthesized_path
-                    else:
-                        msg = f"TTS provider must have a 'synthesize' method decorated with @tts_speech"
-                        raise AttributeError(msg)
+                # Use shared TTS progress bar
+                self._init_tts_pbar(1)
+                # Call the provider's decorated speech synthesis method
+                if hasattr(tts_provider, 'synthesize'):
+                    synthesized_path = tts_provider.synthesize(speech, resolved_audio_path, **tts_kwargs)
+                    if synthesized_path:
+                        resolved_audio_path = synthesized_path
+                else:
+                    msg = f"TTS provider must have a 'synthesize' method decorated with @tts_speech"
+                    raise AttributeError(msg)
+                self._update_tts_pbar()
 
             # Add audio track at group start
             track = AudioTrack(
@@ -611,9 +651,21 @@ class Scene:
                 if group_events and group_audio_end > group_visual_end:
                     self._hold_group_visuals_until_audio_end(group_events, group_audio_end)
             
-            # Advance timeline to after group ends
+            # Calculate group duration and time sample
+            group_duration = 0.0
             if group_end_times:
-                self.timeline_cursor = max(self.timeline_cursor, max(group_end_times))
+                group_end = max(group_end_times)
+                group_duration = group_end - group_start_cursor
+                self.timeline_cursor = max(self.timeline_cursor, group_end)
+            
+            # Store group information
+            self._group_info[group_id] = {
+                "start_time": group_start_cursor,
+                "end_time": group_end if group_end_times else group_start_cursor,
+                "duration": group_duration,
+                "time_sample": group_start_cursor,
+                "has_audio": added_track is not None,
+            }
 
     def _hold_group_visuals_until_audio_end(
         self,
@@ -711,15 +763,17 @@ class Scene:
                 audio_filename = f"tts_{time_marker}_{speech_hash}.mp3"
                 resolved_audio_path = str(self._audio_temp_dir / audio_filename)
 
-                with self._tqdm_step("Synthesizing speech...", colour="magenta"):
-                    # Call the provider's decorated speech synthesis method
-                    if hasattr(tts_provider, 'synthesize'):
-                        synthesized_path = tts_provider.synthesize(speech, resolved_audio_path, **tts_kwargs)
-                        if synthesized_path:
-                            resolved_audio_path = synthesized_path
-                    else:
-                        msg = f"TTS provider must have a 'synthesize' method decorated with @tts_speech"
-                        raise AttributeError(msg)
+                # Use shared TTS progress bar
+                self._init_tts_pbar(1)
+                # Call the provider's decorated speech synthesis method
+                if hasattr(tts_provider, 'synthesize'):
+                    synthesized_path = tts_provider.synthesize(speech, resolved_audio_path, **tts_kwargs)
+                    if synthesized_path:
+                        resolved_audio_path = synthesized_path
+                else:
+                    msg = f"TTS provider must have a 'synthesize' method decorated with @tts_speech"
+                    raise AttributeError(msg)
+                self._update_tts_pbar()
 
             # Add audio track to scene
             if event is not None:
@@ -970,6 +1024,33 @@ class Scene:
         candidates = event_end_times + audio_end_times
         return max(candidates) if candidates else 1.0 / self.fps
 
+    def get_group_info(self) -> dict[str, dict[str, float]]:
+        """
+        Get information about all scene groups including duration and time samples.
+
+        Returns:
+            Dictionary mapping group_id to group information containing:
+            - start_time: When the group starts
+            - end_time: When the group ends
+            - duration: Length of the group in seconds
+            - time_sample: The time sample (start time) of the group
+            - has_audio: Whether the group has audio
+        """
+        return self._group_info.copy()
+
+    def get_total_duration(self) -> float:
+        """
+        Auto-calculate the total duration of the video based on groups and events.
+
+        Returns:
+            Total duration in seconds
+        """
+        if self._group_info:
+            # Use group end times if groups exist
+            group_end_times = [info["end_time"] for info in self._group_info.values()]
+            return max(group_end_times) if group_end_times else self._infer_default_length()
+        return self._infer_default_length()
+
     def get_object_event_and_progress(
         self, object_id: str, t: int, drawable_events_mapping: dict[str, list[AnimationEvent]]
     ) -> list[tuple[AnimationEvent, float]]:
@@ -1160,7 +1241,7 @@ class Scene:
             self._tqdm_bar(
                 self._iter_event_timeline(max_length),
                 desc="Calculating animation frames...",
-                total=int(np.round((self._infer_default_length() if max_length is None else float(max_length)) * self.fps)) + 1,
+                total=int(np.round((self.get_total_duration() if max_length is None else float(max_length)) * self.fps)) + 1,
             )
         )
 
@@ -1225,9 +1306,11 @@ class Scene:
             threads (int, optional): Number of threads for ffmpeg encoding. Use 0 for all cores. Defaults to 0.
         """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        # Close any remaining TTS progress bar before rendering
+        self._close_tts_pbar()
         # calculate the events
         resolved_max_length = (
-            self._infer_default_length() if max_length is None else float(max_length)
+            self.get_total_duration() if max_length is None else float(max_length)
         )
         output_file_ext = Path(output_path).suffix.lower().lstrip(".")
         if output_file_ext.lower() == "gif" and self.audio_tracks:
