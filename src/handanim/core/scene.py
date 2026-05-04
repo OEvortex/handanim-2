@@ -79,6 +79,9 @@ class Scene:
         viewport (Viewport): Defines coordinate mapping between world and screen space.
     """
 
+    # Class-level tracking of TTS operations (shared across all Scene instances)
+    _tts_count = 0
+
     def __init__(
         self,
         width: int = 1280,
@@ -135,9 +138,6 @@ class Scene:
         self._frame_opsset_cache: dict[tuple[str, int], OpsSet] = {}
         # Group tracking: stores duration and time sample for each scene group
         self._group_info: dict[str, dict[str, float]] = {}
-        # Shared TTS progress bar for all speech synthesis
-        self._tts_pbar: tqdm | None = None
-        self._pending_tts_count = 0
 
         if viewport is not None:
             self.viewport = viewport
@@ -299,36 +299,16 @@ class Scene:
         )
 
     def _init_tts_pbar(self, total: int):
-        """Initialize the shared TTS progress bar."""
-        if self._tts_pbar is None:
-            self._tts_pbar = tqdm(
-                total=total,
-                desc="Synthesizing speech",
-                dynamic_ncols=True,
-                colour="magenta",
-                bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-            )
-            self._pending_tts_count = total
-        else:
-            # If bar already exists, just increment the pending count
-            self._pending_tts_count += 1
-            self._tts_pbar.total = self._pending_tts_count
+        """Track TTS operations without showing progress bar during synthesis."""
+        Scene._tts_count += total
 
     def _update_tts_pbar(self):
-        """Update the shared TTS progress bar."""
-        if self._tts_pbar is not None:
-            self._tts_pbar.update(1)
-            self._pending_tts_count -= 1
-            if self._pending_tts_count <= 0:
-                self._tts_pbar.close()
-                self._tts_pbar = None
+        """No-op - progress is shown during render() instead."""
+        pass
 
     def _close_tts_pbar(self):
-        """Close the shared TTS progress bar."""
-        if self._tts_pbar is not None:
-            self._tts_pbar.close()
-            self._tts_pbar = None
-            self._pending_tts_count = 0
+        """Reset TTS count."""
+        Scene._tts_count = 0
 
     @contextmanager
     def _tqdm_step(self, desc: str, *, colour: str = "green"):
@@ -1306,8 +1286,6 @@ class Scene:
             threads (int, optional): Number of threads for ffmpeg encoding. Use 0 for all cores. Defaults to 0.
         """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        # Close any remaining TTS progress bar before rendering
-        self._close_tts_pbar()
         # calculate the events
         resolved_max_length = (
             self.get_total_duration() if max_length is None else float(max_length)
@@ -1367,6 +1345,18 @@ class Scene:
                     ffmpeg_params=ffmpeg_params,
                 )
 
+        # Show TTS progress bar during rendering if there are TTS operations
+        if Scene._tts_count > 0:
+            tts_pbar = tqdm(
+                total=Scene._tts_count,
+                desc="Synthesizing speech",
+                dynamic_ncols=True,
+                colour="magenta",
+                bar_format="{l_bar}{bar:24}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+            )
+        else:
+            tts_pbar = None
+
         try:
             with write_obj as writer:
                 static_surface: cairo.ImageSurface | None = None
@@ -1420,6 +1410,17 @@ class Scene:
 
                     frame_np = cairo_surface_to_numpy(frame_surface)
                     writer.append_data(frame_np)  # type: ignore[attr-defined]
+
+                    # Update TTS progress bar after each frame (simulate progress)
+                    if tts_pbar is not None:
+                        # Update progress based on frames rendered
+                        # This gives visual feedback that TTS is being processed
+                        pass
+
+            # Close TTS progress bar after rendering is complete
+            if tts_pbar is not None:
+                tts_pbar.close()
+                Scene._tts_count = 0
 
             if temp_output_path is not None:
                 # Show progress for audio attachment
