@@ -42,8 +42,8 @@ class FlowchartConnector(Drawable):
     def draw(self) -> OpsSet:
         if len(self.points) == 2:
             return Arrow(
-                start_point=self.points[0],
-                end_point=self.points[1],
+                start=self.points[0],
+                end=self.points[1],
                 arrow_head_type=self.arrow_head_type,
                 arrow_head_size=self.arrow_head_size,
                 arrow_head_angle=self.arrow_head_angle,
@@ -62,8 +62,8 @@ class FlowchartConnector(Drawable):
             )
         opsset.extend(
             Arrow(
-                start_point=self.points[-2],
-                end_point=self.points[-1],
+                start=self.points[-2],
+                end=self.points[-1],
                 arrow_head_type=self.arrow_head_type,
                 arrow_head_size=self.arrow_head_size,
                 arrow_head_angle=self.arrow_head_angle,
